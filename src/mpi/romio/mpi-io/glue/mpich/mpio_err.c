@@ -28,7 +28,7 @@ int MPIO_Err_create_code(int lastcode, int fatal, const char fcname[],
     return error_code;
 }
 
-int MPIO_Err_return_file(MPI_File mpi_fh, int error_code)
+int MPIO_Err_return_file(ADIO_File adio_fh, int error_code)
 {
     MPI_Errhandler e;
     char error_msg[4096];
@@ -41,17 +41,13 @@ int MPIO_Err_return_file(MPI_File mpi_fh, int error_code)
      */
 
     /* First, get the handler and the corresponding function */
-    if (mpi_fh == MPI_FILE_NULL) {
+    if (adio_fh == ADIO_FILE_NULL)
         e = ADIOI_DFLT_ERR_HANDLER;
-    } else {
-        ADIO_File fh;
-
-        fh = MPIO_File_resolve(mpi_fh);
-        e = fh->err_handler;
-    }
+    else
+        e = adio_fh->err_handler;
 
     if (MPIR_Err_is_fatal(error_code) || e == MPI_ERRORS_ARE_FATAL || e == MPI_ERRORS_ABORT) {
-        ADIO_File fh = MPIO_File_resolve(mpi_fh);
+        ADIO_File fh = MPIO_File_resolve(adio_fh);
 
         snprintf(error_msg, 4096, "I/O error: ");
         len = (int) strlen(error_msg);
@@ -63,7 +59,7 @@ int MPIO_Err_return_file(MPI_File mpi_fh, int error_code)
         /* FIXME: This is a hack in case no error handler was set */
         goto fn_exit;
     } else {
-        error_code = MPIR_Call_file_errhandler(e, error_code, mpi_fh);
+        error_code = MPIR_Call_file_errhandler(e, error_code, adio_fh);
     }
 
   fn_exit:
