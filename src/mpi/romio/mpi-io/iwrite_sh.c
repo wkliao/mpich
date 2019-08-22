@@ -91,7 +91,6 @@ int MPI_File_iwrite_shared_c(MPI_File fh, ROMIO_CONST void *buf, MPI_Count count
     return MPIOI_File_iwrite_shared(fh, buf, count, datatype, request);
 }
 
-#ifdef MPIO_BUILD_PROFILING
 int MPIOI_File_iwrite_shared(MPI_File fh, const void *buf, MPI_Aint count,
                              MPI_Datatype datatype, MPIO_Request * request)
 {
@@ -165,4 +164,3 @@ int MPIOI_File_iwrite_shared(MPI_File fh, const void *buf, MPI_Aint count,
 
     return error_code;
 }
-#endif

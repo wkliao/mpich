@@ -80,7 +80,6 @@ int MPI_File_write_ordered_begin_c(MPI_File fh, ROMIO_CONST void *buf, MPI_Count
     return MPIOI_File_write_ordered_begin(fh, buf, count, datatype);
 }
 
-#ifdef MPIO_BUILD_PROFILING
 int MPIOI_File_write_ordered_begin(MPI_File fh, const void *buf, MPI_Aint count,
                                    MPI_Datatype datatype)
 {
@@ -170,4 +169,3 @@ int MPIOI_File_write_ordered_begin(MPI_File fh, const void *buf, MPI_Aint count,
     /* FIXME: Check for error code from WriteStridedColl? */
     return error_code;
 }
-#endif

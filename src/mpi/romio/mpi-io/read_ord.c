@@ -86,7 +86,6 @@ int MPI_File_read_ordered_c(MPI_File fh, void *buf, MPI_Count count,
     return MPIOI_File_read_ordered(fh, buf, count, datatype, status);
 }
 
-#ifdef MPIO_BUILD_PROFILING
 int MPIOI_File_read_ordered(MPI_File fh, void *buf, MPI_Aint count,
                             MPI_Datatype datatype, MPI_Status * status)
 {
@@ -156,4 +155,3 @@ int MPIOI_File_read_ordered(MPI_File fh, void *buf, MPI_Aint count,
     /* FIXME: Check for error code from ReadStridedColl? */
     return error_code;
 }
-#endif

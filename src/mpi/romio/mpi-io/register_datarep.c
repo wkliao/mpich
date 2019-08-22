@@ -121,7 +121,6 @@ int MPI_Register_datarep_c(ROMIO_CONST char *datarep,
                                   dtype_file_extent_fn, extra_state, is_large);
 }
 
-#ifdef MPIO_BUILD_PROFILING
 int MPIOI_Register_datarep(const char *datarep,
                            MPIOI_VOID_FN * read_conversion_fn,
                            MPIOI_VOID_FN * write_conversion_fn,
@@ -211,4 +210,3 @@ int MPIOI_Register_datarep(const char *datarep,
 
     return error_code;
 }
-#endif

@@ -86,7 +86,6 @@ int MPI_File_read_shared_c(MPI_File fh, void *buf, MPI_Count count,
     return MPIOI_File_read_shared(fh, buf, count, datatype, status);
 }
 
-#ifdef MPIO_BUILD_PROFILING
 int MPIOI_File_read_shared(MPI_File fh, void *buf, MPI_Aint count,
                            MPI_Datatype datatype, MPI_Status * status)
 {
@@ -191,4 +190,3 @@ int MPIOI_File_read_shared(MPI_File fh, void *buf, MPI_Aint count,
 
     return error_code;
 }
-#endif
