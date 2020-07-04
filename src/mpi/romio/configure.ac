@@ -70,7 +70,7 @@ AH_BOTTOM([
 
 dnl
 NOF77=0
-NOF90=0
+NOFC=0
 ARCH=""
 arch_IRIX=""
 MPI_IMPL=""
@@ -217,10 +217,6 @@ AC_ARG_ENABLE(aio,[
 ], disable_aio=no)
 AC_ARG_ENABLE(echo,
 [--enable-echo  - Turn on strong echoing. The default is enable=no.] ,set -x)
-AC_ARG_ENABLE(f77,
-[--enable-f77 - Turn on support for Fortran 77 (default)],,enable_f77=yes)
-AC_ARG_ENABLE(f90,
-[--enable-f90 - Turn on support for Fortran 90 (default)],,enable_f90=yes)
 AC_ARG_ENABLE(weak-symbols,
 [--enable-weak-symbols - Turn on support for weak symbols],,enable_weak_symbols=yes)
 AC_ARG_ENABLE(debug,
@@ -235,11 +231,35 @@ dnl
 AC_ARG_WITH(mpi, [
 --with-mpi=path   - Path to installation of MPI (headers, libs, etc)],,)
 dnl
+
+AC_ARG_ENABLE(fortran,
+    [AS_HELP_STRING([--disable-fortran],
+                    [Turn off support for Fortran. @<:@default: enabled@:>@])],
+    [enable_fortran=${enableval}], [enable_fortran=yes])
+AC_ARG_ENABLE(f77,
+    [AS_HELP_STRING([--disable-f77],
+                    [Turn off support for Fortran 77. @<:@default: enabled@:>@])],
+    [enable_f77=${enableval}], [enable_f77=yes])
+AC_ARG_ENABLE(fc,
+    [AS_HELP_STRING([--disable-fc],
+                    [Turn off support for Fortran 90 and 2008. @<:@default: enabled@:>@])],
+    [enable_fc=${enableval}], [enable_fc=yes])
+
+if test "x$enable_fortran" = xno ; then
+   if test "x$enable_f77" = yes ; then
+      AC_MSG_WARN([disabling F77 due to the use of --disable-fortran])
+   fi
+   enable_f77=no
+   if test "x$enable_fc" = yes ; then
+      AC_MSG_WARN([disabling FC due to the use of --disable-fortran])
+   fi
+   enable_fc=no
+fi
 if test "$enable_f77" != "yes" ; then
    NOF77=1
 fi
-if test "$enable_f90" != "yes" ; then
-   NOF90=1
+if test "$enable_fc" != "yes" ; then
+   NOFC=1
 fi
 if test "$enable_debug" = "yes" ; then
     DEBUG=yes
@@ -420,7 +440,7 @@ if test "$enable_f77" = "yes" ; then
     : ${FFLAGS=""}
     AC_PROG_F77([PAC_F77_SEARCH_LIST])
 fi
-if test "$enable_f90" = "yes" ; then
+if test "$enable_fc" = "yes" ; then
     # suppress default "-g -O2" from AC_PROG_FC
     : ${FCFLAGS=""}
     AC_PROG_FC([PAC_FC_SEARCH_LIST])
@@ -581,11 +601,11 @@ if test -n "$OFFSET_KIND" -a "A$MPI_OFFSET_KIND1" = "A!" ; then
   MPI_OFFSET_KIND2="        PARAMETER (MPI_OFFSET_KIND=$OFFSET_KIND)"
   MPI_OFFSET_KIND_VAL=$OFFSET_KIND
 else
- if test "$FORTRAN_MPI_OFFSET" = "integer*8" && test "A$MPI_OFFSET_KIND2" = "A!" && test $NOF77 = 0 && test $NOF90 = 0 ; then
+ if test "$FORTRAN_MPI_OFFSET" = "integer*8" && test "A$MPI_OFFSET_KIND2" = "A!" && test $NOF77 = 0 && test $NOFC = 0 ; then
    PAC_MPI_OFFSET_KIND
  fi
  #
-  if test "$FORTRAN_MPI_OFFSET" = "integer" && test "A$MPI_OFFSET_KIND2" = "A!" && test $NOF77 = 0 && test $NOF90 = 0 ; then
+  if test "$FORTRAN_MPI_OFFSET" = "integer" && test "A$MPI_OFFSET_KIND2" = "A!" && test $NOF77 = 0 && test $NOFC = 0 ; then
    PAC_MPI_OFFSET_KIND_4BYTE
   fi
 fi
