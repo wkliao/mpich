@@ -202,6 +202,8 @@ typedef struct ADIOI_FileD {
     MPI_Comm comm;              /* communicator indicating who called open */
     int is_open;                /* deferred open: 0: not open yet 1: is open */
     int is_agg;                 /* bool: if I am an aggregator */
+    int num_nodes;              /* number of unique compute nodes, MPI_Get_processor_name() */
+
     char *filename;
     int file_system;            /* type of file system */
     int access_mode;            /* Access mode (sequential, append, etc.),
