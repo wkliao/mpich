@@ -153,6 +153,9 @@ void ADIOI_LUSTRE_Open(ADIO_File fd, int *error_code)
         fd->hints->start_iodevice = 0;
         ADIOI_Info_set(fd->info, "romio_lustre_start_iodevice", "0");
 
+        fd->hints->fs_hints.lustre.num_osts = STRIPE_COUNT;
+        ADIOI_Info_set(fd->info, "lustre_num_osts", xstr(STRIPE_COUNT));
+
 #else
 
     /* we can only set these hints on new files */
@@ -204,9 +207,11 @@ void ADIOI_LUSTRE_Open(ADIO_File fd, int *error_code)
          * as hints in the generic hint processing code */
         err = ioctl(fd->fd_sys, LL_IOC_LOV_GETSTRIPE, (void *) lum);
         if (!err) {
+            /* striping hints will be set later after return to ADIO_Open() */
             fd->hints->striping_unit = lum->lmm_stripe_size;
             fd->hints->striping_factor = lum->lmm_stripe_count;
             fd->hints->start_iodevice = lum->lmm_stripe_offset;
+            fd->hints->fs_hints.lustre.num_osts = num_uniq_osts(fd->filename);
         }
     }
 #endif
