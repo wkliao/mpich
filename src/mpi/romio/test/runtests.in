@@ -11,7 +11,7 @@ prefix=@prefix@
 exec_prefix=@exec_prefix@
 bindir=@bindir@
 mpirun="@MPIRUN@"
-valgrind_opt="libtool --mode=execute /usr/bin/valgrind --quiet --leak-check=full"
+# valgrind_opt="libtool --mode=execute /usr/bin/valgrind --quiet --leak-check=full"
 
 STOPFILE=${MPITEST_STOPTEST:-"$HOME/.stopmpichtests"}
 #
@@ -58,7 +58,7 @@ for arg in "$@" ; do
 	subset_only=1
 	;;
 	-f=*)
-	PREFIX_FILENAME=`echo $arg|sed 's/-*fname=//'`
+	PREFIX_FILENAME=`echo $arg|sed 's/-*f=//'`
 	;;
 	-atend)
 	shift
@@ -320,7 +320,7 @@ CleanExe hindexed
 #	-offm 8 -hints romio_cb_write enable -f $FILENAME
 #echo '**** Testing write_all_test (run 2)****'
 #$mpirun -np 4 ${valgrind_opt} ./write_all_test -nzp 2 -zplace 2 -nzw 2 -naw 2 -size 100 \
-#	-offm 4 -hints romio_cb_write enable -f $FILENAME
+#	-offm 4 ${valgrind_opt} -hints romio_cb_write enable -f $FILENAME
 #CleanExe write_all_test
 OutTime
 if [ $subset_only -eq 0 ] ; then
