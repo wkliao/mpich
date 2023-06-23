@@ -59,8 +59,11 @@ int main(int argc, char **argv)
         MPI_Bcast(filename, len + 10, MPI_CHAR, 0, MPI_COMM_WORLD);
     }
 
+    /* allocate and initialize I/O buffer */
     nints = SIZE / sizeof(int);
-    buf = (int *) calloc(nints, sizeof(int));
+    buf = (int *) malloc(nints * sizeof(int));
+    for (i=0; i<nints; i++)
+        buf[i] = rank;
 
     /* each process opens a separate file called filename.'myrank' */
     tmp = (char *) malloc(len + 10);
