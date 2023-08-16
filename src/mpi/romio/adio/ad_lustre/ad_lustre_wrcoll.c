@@ -10,7 +10,7 @@
 #ifdef HAVE_LUSTRE_LOCKAHEAD
 /* in ad_lustre_lock.c */
 void ADIOI_LUSTRE_lock_ahead_ioctl(ADIO_File fd,
-                                   int avail_cb_nodes, ADIO_Offset next_offset, int *error_code);
+                                   int cb_nodes, ADIO_Offset next_offset, int *error_code);
 
 /* Handle lock ahead.  If this write is outside our locked region, lock it now */
 #define ADIOI_LUSTRE_WR_LOCK_AHEAD(fd,cb_nodes,offset,error_code)           \
@@ -57,16 +57,18 @@ static void ADIOI_LUSTRE_Exch_and_write(ADIO_File fd, const void *buf,
                                         ADIOI_Access *my_req,
                                         ADIO_Offset *offset_list,
                                         ADIO_Offset *len_list,
-                                        ADIO_Offset min_st_loc, ADIO_Offset max_end_loc,
+                                        ADIO_Offset min_st_loc,
+                                        ADIO_Offset max_end_loc,
                                         MPI_Count contig_access_count,
-                                        ADIO_Offset **buf_idx, int *error_code);
+                                        ADIO_Offset **buf_idx,
+                                        int *error_code);
 static void ADIOI_LUSTRE_Fill_send_buffer(ADIO_File fd, const void *buf,
                                           const ADIOI_Flatlist_node *flat_buf,
                                           char **send_buf,
                                           const ADIO_Offset *offset_list,
                                           const ADIO_Offset *len_list,
                                           const MPI_Count *send_size,
-                                          MPI_Count *sent_to_proc,
+                                          MPI_Count *sent_to_aggr,
                                           MPI_Count contig_access_count,
                                           MPI_Aint buftype_extent,
                                           disp_len_list *send_list);
@@ -83,7 +85,7 @@ static void ADIOI_LUSTRE_W_Exchange_data(ADIO_File fd, const void *buf,
                                          MPI_Count range_size,
                                          const MPI_Count *count,
                                          const MPI_Count *start_pos,
-                                         MPI_Count *sent_to_proc,
+                                         MPI_Count *sent_to_aggr,
                                          MPI_Count contig_access_count,
                                          const ADIOI_Access *others_req,
                                          MPI_Aint buftype_extent,
@@ -105,25 +107,29 @@ static void ADIOI_LUSTRE_IterateOneSided(ADIO_File fd, const void *buf,
  * of this process are located in the file domains of I/O aggregators.
  */
 static
-void ADIOI_LUSTRE_Calc_my_req(ADIO_File fd, ADIO_Offset *offset_list,
-                              ADIO_Offset *len_list, MPI_Count contig_access_count,
-                              int nprocs,
+void ADIOI_LUSTRE_Calc_my_req(ADIO_File fd,
+                              ADIO_Offset *offset_list,
+                              ADIO_Offset *len_list,
+                              MPI_Count contig_access_count,
                               int *count_my_req_procs_ptr,
                               MPI_Count **count_my_req_per_proc_ptr,
-                              ADIOI_Access **my_req_ptr, int buftype_is_contig,
+                              ADIOI_Access **my_req_ptr,
+                              int buftype_is_contig,
                               ADIO_Offset **buf_idx)
 {
-    int i, proc, *aggr_ranks, count_my_req_procs;
+    int i, proc, *aggr_ranks, cb_nodes, count_my_req_procs;
     MPI_Count l, *count_my_req_per_proc;
     size_t nelems;
     ADIO_Offset avail_len, rem_len, curr_idx, off, *ptr;
     ADIO_Offset *avail_lens;
     ADIOI_Access *my_req;
 
-    *count_my_req_per_proc_ptr = (MPI_Count *) ADIOI_Calloc(nprocs, sizeof(MPI_Count));
+    cb_nodes = fd->hints->cb_nodes;
+
+    *count_my_req_per_proc_ptr = (MPI_Count *) ADIOI_Calloc(cb_nodes, sizeof(MPI_Count));
     count_my_req_per_proc = *count_my_req_per_proc_ptr;
     /* count_my_req_per_proc[i] gives the number of contiguous requests of this
-     * process that fall in process i's file domain.
+     * process that fall in aggregator i's file domain.
      */
 
     /* First pass just to calculate how much space to allocate for my_req.
@@ -180,18 +186,21 @@ void ADIOI_LUSTRE_Calc_my_req(ADIO_File fd, ADIO_Offset *offset_list,
      */
     if (buf_idx != NULL && buftype_is_contig) {
         buf_idx[0] = (ADIO_Offset *) ADIOI_Malloc(nelems * sizeof(ADIO_Offset));
-        for (i = 1; i < nprocs; i++)
+        for (i = 1; i < cb_nodes; i++)
             buf_idx[i] = buf_idx[i - 1] + count_my_req_per_proc[i - 1];
     }
 
     /* allocate space for my_req and its members offsets and lens */
-    *my_req_ptr = (ADIOI_Access *) ADIOI_Malloc(nprocs * sizeof(ADIOI_Access));
+    *my_req_ptr = (ADIOI_Access *) ADIOI_Malloc(cb_nodes * sizeof(ADIOI_Access));
     my_req = *my_req_ptr;
     my_req[0].offsets = (ADIO_Offset *) ADIOI_Malloc(nelems * 2 * sizeof(ADIO_Offset));
 
+    /* count_my_req_procs is the number of aggregators whose file domains have
+     * this rank's write requests
+     */
     count_my_req_procs = 0;
     ptr = my_req[0].offsets;
-    for (i = 0; i < nprocs; i++) {
+    for (i = 0; i < cb_nodes; i++) {
         if (count_my_req_per_proc[i]) {
             my_req[i].offsets = ptr;
             ptr += count_my_req_per_proc[i];
@@ -251,7 +260,7 @@ void ADIOI_LUSTRE_Calc_my_req(ADIO_File fd, ADIO_Offset *offset_list,
     ADIOI_Free(avail_lens);
 
 #ifdef AGG_DEBUG
-    for (i = 0; i < nprocs; i++) {
+    for (i = 0; i < cb_nodes; i++) {
         if (count_my_req_per_proc[i] > 0) {
             FPRINTF(stdout, "data needed from %d (count = %d):\n", i, my_req[i].count);
             for (l = 0; l < my_req[i].count; l++) {
@@ -351,17 +360,17 @@ void ADIOI_LUSTRE_Calc_others_req(ADIO_File fd,
             continue;
         if (i == myrank)
             /* send to self uses memcpy(), here
-             * others_req[i].count == my_req[myrank].count
+             * others_req[i].count == my_req[fd->my_cb_nodes_index].count
              */
-            memcpy(others_req[i].offsets, my_req[myrank].offsets,
-                   2 * my_req[myrank].count * sizeof(ADIO_Offset));
+            memcpy(others_req[i].offsets, my_req[fd->my_cb_nodes_index].offsets,
+                   2 * my_req[fd->my_cb_nodes_index].count * sizeof(ADIO_Offset));
         else
             MPI_Irecv(others_req[i].offsets, 2 * others_req[i].count,
                       ADIO_OFFSET, i, 0, fd->comm, &requests[j++]);
     }
 
     for (i = 0; i < fd->hints->cb_nodes; i++) {
-        if (my_req[i].count && i != myrank)
+        if (my_req[i].count && i != fd->my_cb_nodes_index)
             MPI_Isend(my_req[i].offsets, 2 * my_req[i].count,
                       ADIO_OFFSET, fd->hints->ranklist[i], 0, fd->comm,
                       &requests[j++]);
@@ -420,6 +429,8 @@ void ADIOI_LUSTRE_WriteStridedColl(ADIO_File fd, const void *buf, MPI_Aint count
         /* Calculate and construct the list of starting file offsets and
          * lengths of write requests of this process into offset_list and
          * len_list, respectively. No inter-process communication is needed.
+         * The number of elements in both offset_list[] and len_list[] is
+         * contig_access_count.
          *
          * From start_offset to end_offset is this process's aggregate access
          * file region. Note: end_offset points to the last byte-offset to be
@@ -531,22 +542,23 @@ void ADIOI_LUSTRE_WriteStridedColl(ADIO_File fd, const void *buf, MPI_Aint count
         /* If user has set hint ROMIO_WRITE_AGGMETHOD env variable to to use a
          * one-sided aggregation method then do that at this point instead of
          * using the traditional MPI point-to-point communication, i.e.
-         * MPI_Isend and MPI_Irecv.
+         * MPI_Issend and MPI_Irecv.
          */
         ADIOI_LUSTRE_IterateOneSided(fd, buf, offset_list, len_list,
                                      contig_access_count, nonzero_nprocs, count,
                                      file_ptr_type, offset, start_offset, end_offset,
                                      min_st_loc, max_end_loc, buftype, myrank, error_code);
     } else {
-        /* my_req[] is an array of nprocs access structures, one for each other
-         * process whose file domain has this process's request */
+        /* my_req[cb_nodes] is an array of access info, one for each I/O
+         * aggregator whose file domain has this rank's request.
+         */
         ADIOI_Access *my_req;
-        int count_my_req_procs;
-        MPI_Count *count_my_req_per_proc;
+        int count_my_req_aggr;
+        MPI_Count *count_my_req_per_aggr;
 
-        /* others_req[] is an array of nprocs access structures, one for each
-         * other process whose requests fall into this process's file domain,
-         * i.e. is written by this process. */
+        /* others_req[nprocs] is an array of access info, one for each process
+         * whose write requests fall into this process's file domain.
+         */
         ADIOI_Access *others_req;
         int count_others_req_procs;
         MPI_Count *count_others_req_per_proc;
@@ -555,18 +567,21 @@ void ADIOI_LUSTRE_WriteStridedColl(ADIO_File fd, const void *buf, MPI_Aint count
         /* Calculate the portions of this process's write requests that fall
          * into the file domains of each I/O aggregator. No inter-process
          * communication is needed.
+         * count_my_req_per_aggr[i]: the number of contiguous requests of this
+         * process that fall in aggregator i's file domain.
+         * count_my_req_aggr is the number of aggregators whose file domains
+         * have this rank's write requests>
          */
         if (buftype_is_contig == 1)
-            buf_idx = (ADIO_Offset **) ADIOI_Malloc(nprocs * sizeof(ADIO_Offset*));
+            buf_idx = (ADIO_Offset **) ADIOI_Malloc(fd->hints->cb_nodes * sizeof(ADIO_Offset*));
         ADIOI_LUSTRE_Calc_my_req(fd, offset_list, len_list, contig_access_count,
-                                 nprocs, &count_my_req_procs,
-                                 &count_my_req_per_proc,
+                                 &count_my_req_aggr, &count_my_req_per_aggr,
                                  &my_req, buftype_is_contig, buf_idx);
 
         /* Calculate the portions of all other process's requests fall into
          * this process's file domain (note only I/O aggregators are assigned
          * file domains). Inter-process communication is required to construct
-         * others_req[], including MPI_Alltoall, MPI_Isend, MPI_Irecv, and
+         * others_req[], including MPI_Alltoall, MPI_Issend, MPI_Irecv, and
          * MPI_Waitall.
          *
          * count_others_req_procs is the number of processes whose requests
@@ -575,10 +590,9 @@ void ADIOI_LUSTRE_WriteStridedColl(ADIO_File fd, const void *buf, MPI_Aint count
          * count_others_req_per_proc[i] indicates how many noncontiguous
          * requests from process i that fall into this process's file domain.
          */
-        ADIOI_LUSTRE_Calc_others_req(fd, count_my_req_procs,
-                                     count_my_req_per_proc, my_req, nprocs,
-                                     myrank,
-                                     &count_others_req_procs,
+        ADIOI_LUSTRE_Calc_others_req(fd, count_my_req_aggr,
+                                     count_my_req_per_aggr, my_req, nprocs,
+                                     myrank, &count_others_req_procs,
                                      &count_others_req_per_proc, &others_req);
 
         /* Two-phase I/O: first communication phase to exchange write data from
@@ -596,7 +610,7 @@ void ADIOI_LUSTRE_WriteStridedColl(ADIO_File fd, const void *buf, MPI_Aint count
         /* free all memory allocated */
         ADIOI_Free_others_req(nprocs, count_others_req_per_proc, others_req);
 
-        ADIOI_Free(count_my_req_per_proc);
+        ADIOI_Free(count_my_req_per_aggr);
         if (buf_idx != NULL) {
             ADIOI_Free(buf_idx[0]);
             ADIOI_Free(buf_idx);
@@ -735,9 +749,11 @@ static void ADIOI_LUSTRE_Exch_and_write(ADIO_File fd, const void *buf,
                                         ADIOI_Access *my_req,
                                         ADIO_Offset *offset_list,
                                         ADIO_Offset *len_list,
-                                        ADIO_Offset min_st_loc, ADIO_Offset max_end_loc,
+                                        ADIO_Offset min_st_loc,
+                                        ADIO_Offset max_end_loc,
                                         MPI_Count contig_access_count,
-                                        ADIO_Offset **buf_idx, int *error_code)
+                                        ADIO_Offset **buf_idx,
+                                        int *error_code)
 {
     /* Each process sends all its write requests to I/O aggregators based on
      * the file domain assignment to the aggregators. In this implementation,
@@ -760,8 +776,8 @@ static void ADIOI_LUSTRE_Exch_and_write(ADIO_File fd, const void *buf,
     MPI_Count j, m, ntimes;
     MPI_Count *recv_curr_offlen_ptr, **recv_size=NULL, **recv_count=NULL;
     MPI_Count **recv_start_pos=NULL;
-    MPI_Count *send_curr_offlen_ptr, *send_size, *sent_to_proc;
-    int batch_idx=0, cb_nodes, striping_unit;
+    MPI_Count *send_curr_offlen_ptr, *send_size, *sent_to_aggr;
+    int batch_idx = 0, cb_nodes, striping_unit;
     ADIO_Offset end_loc, req_off, iter_end_off, *off_list, step_size;
     ADIO_Offset *this_buf_idx;
     MPI_Aint lb, buftype_extent;
@@ -777,7 +793,7 @@ static void ADIOI_LUSTRE_Exch_and_write(ADIO_File fd, const void *buf,
      * write starts from min_st_loc and ends at max_end_loc. The collective
      * write is carried out in 'ntimes' rounds of two-phase I/O. Each round
      * covers an aggregate file region of size 'step_size' written only by
-     * 'cb_nodes' number of processes (I/O aggregators). Note
+     * cb_nodes number of I/O aggregators. Note
      * non-aggregators must also participate all ntimes rounds to send their
      * requests to I/O aggregators.
      */
@@ -788,7 +804,7 @@ static void ADIOI_LUSTRE_Exch_and_write(ADIO_File fd, const void *buf,
     /* step_size is the size of aggregate access region covered by each round
      * of two-phase I/O
      */
-    step_size = ((ADIO_Offset) cb_nodes) * striping_unit;
+    step_size = (ADIO_Offset)cb_nodes * striping_unit;
 
     /* align min_st_loc downward to the nearest file stripe boundary */
     min_st_loc -= min_st_loc % (ADIO_Offset) striping_unit;
@@ -884,24 +900,24 @@ static void ADIOI_LUSTRE_Exch_and_write(ADIO_File fd, const void *buf,
      */
     send_buf = (char ***) ADIOI_Malloc(nbufs * sizeof(char**));
 
-    /* this_buf_idx contains indices to user buffer for sending this process's
+    /* this_buf_idx contains indices to user buffer for sending this rank's
      * write data to remote aggregators. It is used only when user buffer is
      * contiguous.
      */
     if (flat_buf->count == 1)
-        this_buf_idx = (ADIO_Offset *) ADIOI_Malloc(nprocs * sizeof(ADIO_Offset));
+        this_buf_idx = (ADIO_Offset *) ADIOI_Malloc(cb_nodes * sizeof(ADIO_Offset));
 
     /* Allocate multiple buffers of type int altogether at once in a single
      * calloc call. Their use is explained below. calloc initializes to 0.
      */
-    recv_curr_offlen_ptr = (MPI_Count *) ADIOI_Calloc(nprocs * 4, sizeof(MPI_Count));
+    recv_curr_offlen_ptr = (MPI_Count *) ADIOI_Calloc((nprocs + 3 * cb_nodes), sizeof(MPI_Count));
     send_curr_offlen_ptr = recv_curr_offlen_ptr + nprocs;
 
-    /* array of data sizes to be sent to each proc in an iteration. */
-    send_size = send_curr_offlen_ptr + nprocs;
+    /* array of data sizes to be sent to each aggregator in a 2-phase round */
+    send_size = send_curr_offlen_ptr + cb_nodes;
 
-    /* amount of data sent to each proc so far, initialized to 0 here. */
-    sent_to_proc = send_size + nprocs;
+    /* amount of data sent to each aggregator so far, initialized to 0 here */
+    sent_to_aggr = send_size + cb_nodes;
 
     MPI_Type_get_extent(buftype, &lb, &buftype_extent);
 
@@ -966,7 +982,7 @@ static void ADIOI_LUSTRE_Exch_and_write(ADIO_File fd, const void *buf,
          *                 round starts from (iter_end_off-step_size) to
          *                 iter_end_off, aligned with file stripe boundaries.
          * send_size[i]  = total size in bytes of this process's write data
-         *                 fall into process i's write region for this round.
+         *                 fall into aggregator i's FD in this round.
          * recv_size[j][i] = total size in bytes of write data to be received
          *                 by this process (aggregator) in round j.
          * recv_count[j][i] = number of noncontiguous offset-length pairs from
@@ -976,7 +992,10 @@ static void ADIOI_LUSTRE_Exch_and_write(ADIO_File fd, const void *buf,
 
         /* reset communication metadata to all 0s for this round */
         for (i = 0; i < nprocs; i++)
-            recv_count[ibuf][i] = send_size[i] = recv_size[ibuf][i] = recv_start_pos[ibuf][i] = 0;
+            recv_count[ibuf][i] = recv_size[ibuf][i] = recv_start_pos[ibuf][i] = 0;
+
+        for (i = 0; i < cb_nodes; i++)
+            send_size[i] = 0;
 
         range_off = off_list[m];
         range_size = (int) MPL_MIN(striping_unit - range_off % striping_unit, end_loc - range_off + 1);
@@ -985,7 +1004,7 @@ static void ADIOI_LUSTRE_Exch_and_write(ADIO_File fd, const void *buf,
          * others_req and my_req to check which will be sent and received in
          * this round.
          */
-        for (i = 0; i < nprocs; i++) {
+        for (i = 0; i < cb_nodes; i++) {
             if (my_req[i].count) {
                 if (flat_buf->count == 1)
                     this_buf_idx[i] = buf_idx[i][send_curr_offlen_ptr[i]];
@@ -997,6 +1016,8 @@ static void ADIOI_LUSTRE_Exch_and_write(ADIO_File fd, const void *buf,
                 }
                 send_curr_offlen_ptr[i] = j;
             }
+        }
+        for (i = 0; i < nprocs; i++) {
             if (others_req[i].count) {
                 recv_start_pos[ibuf][i] = recv_curr_offlen_ptr[i];
                 for (j = recv_curr_offlen_ptr[i]; j < others_req[i].count; j++) {
@@ -1035,7 +1056,7 @@ static void ADIOI_LUSTRE_Exch_and_write(ADIO_File fd, const void *buf,
                                      range_size,           /* IN: changed each round */
                                      recv_count[ibuf],     /* IN: changed each round */
                                      recv_start_pos[ibuf], /* IN: changed each round */
-                                     sent_to_proc,         /* OUT: sent_to_proc[i] amount of data sent to each rank i so far */
+                                     sent_to_aggr,         /* OUT: sent_to_aggr[i] amount of data sent to each aggregator i so far */
                                      contig_access_count,
                                      others_req,           /* IN: changed each round */
                                      buftype_extent,
@@ -1317,20 +1338,20 @@ static void ADIOI_LUSTRE_W_Exchange_data(
             char                *write_buf,    /* OUT: internal buffer used to write in round iter */
             char               **recv_buf,     /* OUT: internal buffer used to receive in round iter */
             char              ***send_buf,     /* OUT: internal buffer used to send in round iter */
-      const ADIOI_Flatlist_node *flat_buf,     /* offset-length info of this rank's fileview */
+      const ADIOI_Flatlist_node *flat_buf,     /* offset-length info of this rank's write buffer */
       const ADIO_Offset         *offset_list,  /* this process's access offsets */
       const ADIO_Offset         *len_list,     /* this process's access lengths */
-      const MPI_Count           *send_size,    /* send_size[i] is amount of this rank sent to rank i in round iter */
+      const MPI_Count           *send_size,    /* send_size[i] is amount of this rank sent to aggregator i in round iter */
       const MPI_Count           *recv_size,    /* recv_size[i] is amount of this rank recv from rank i in round iter */
             ADIO_Offset          range_off,    /* starting file offset of this process's write region in round iter */
             MPI_Count            range_size,   /* amount of this rank's write region in round iter */
       const MPI_Count           *recv_count,   /* recv_count[i] is No. offset-length pairs received from rank i in round iter */
       const MPI_Count           *start_pos,    /* start_pos[i] starting value of recv_curr_offlen_ptr[i] in round iter */
-            MPI_Count           *sent_to_proc, /* OUT: sent_to_proc[i] amount of data sent to each rank i so far */
+            MPI_Count           *sent_to_aggr, /* OUT: sent_to_aggr[i] amount of data sent to each aggregator i so far */
             MPI_Count            contig_access_count,
       const ADIOI_Access        *others_req,   /* others_req[i] is rank i's write requests fall into this rank's file domain */
             MPI_Aint             buftype_extent,
-      const ADIO_Offset         *buf_idx,      /* indices to user buffer for sending this rank's write data to rank i */
+      const ADIO_Offset         *buf_idx,      /* indices to user buffer for sending this rank's write data to aggregator i */
             off_len_list        *srt_off_len,  /* OUT: list of writes by this rank in this round */
             disp_len_list       *send_list,    /* OUT: displacement-length pairs */
             disp_len_list       *recv_list,    /* OUT: displacement-length pairs */
@@ -1364,6 +1385,8 @@ static void ADIOI_LUSTRE_W_Exchange_data(
         sum_recv += recv_size[i];
         if (recv_size[i])
             nprocs_recv++;
+    }
+    for (i = 0; i < cb_nodes; i++) {
         if (send_size[i])
             nprocs_send++;
     }
@@ -1492,16 +1515,16 @@ static void ADIOI_LUSTRE_W_Exchange_data(
          * ones sent to self.
          */
         size_t send_total_size = 0;
-        for (i = 0; i < nprocs; i++)
+        for (i = 0; i < cb_nodes; i++)
             send_total_size += send_size[i];
-        *send_buf = (char **) ADIOI_Malloc(nprocs * sizeof(char *));
+        *send_buf = (char **) ADIOI_Malloc(cb_nodes * sizeof(char *));
         (*send_buf)[0] = (char *) ADIOI_Malloc(send_total_size);
-        for (i = 1; i < nprocs; i++)
+        for (i = 1; i < cb_nodes; i++)
             (*send_buf)[i] = (*send_buf)[i - 1] + send_size[i - 1];
 
         ADIOI_LUSTRE_Fill_send_buffer(fd, buf, flat_buf, (*send_buf),
                                       offset_list, len_list,
-                                      send_size, sent_to_proc,
+                                      send_size, sent_to_aggr,
                                       contig_access_count,
                                       buftype_extent, send_list);
         /* Send buffers must not be touched before MPI_Waitall() is completed,
@@ -1515,14 +1538,14 @@ static void ADIOI_LUSTRE_W_Exchange_data(
              * into send_buf[fd->my_cb_nodes_index]. Now unpack it into
              * write_buf.
              */
-            MEMCPY_UNPACK(myrank, (*send_buf)[myrank], start_pos, recv_count, write_buf);
+            MEMCPY_UNPACK(myrank, (*send_buf)[fd->my_cb_nodes_index], start_pos, recv_count, write_buf);
     }
 }
 
 #define ADIOI_BUF_INCR \
 { \
     while (buf_incr) { \
-        size_in_buf = MPL_MIN(buf_incr, flat_buf_sz); \
+        int size_in_buf = MPL_MIN(buf_incr, flat_buf_sz); \
         user_buf_idx += size_in_buf; \
         flat_buf_sz -= size_in_buf; \
         if (!flat_buf_sz) { \
@@ -1543,7 +1566,7 @@ static void ADIOI_LUSTRE_W_Exchange_data(
 #define ADIOI_BUF_COPY \
 { \
     while (size) { \
-        size_in_buf = MPL_MIN(size, flat_buf_sz); \
+        MPI_Count size_in_buf = MPL_MIN(size, flat_buf_sz); \
         memcpy(&(send_buf[p][send_buf_idx[p]]), \
                ((char *) buf) + user_buf_idx, size_in_buf); \
         send_buf_idx[p] += size_in_buf; \
@@ -1572,83 +1595,106 @@ static void ADIOI_LUSTRE_Fill_send_buffer(ADIO_File fd,
                                           const ADIO_Offset *offset_list,
                                           const ADIO_Offset *len_list,
                                           const MPI_Count *send_size,
-                                          MPI_Count *sent_to_proc,
+                                          MPI_Count *sent_to_aggr,
                                           MPI_Count contig_access_count,
                                           MPI_Aint buftype_extent,
                                           disp_len_list *send_list)
 {
     /* this function is only called if buftype is not contig */
-    int p, nprocs, myrank;
+    int p, cb_nodes;
     MPI_Count i, flat_buf_idx, size, *curr_to_proc, *done_to_proc;
     MPI_Count flat_buf_sz, buf_incr, size_in_buf, n_buftypes;
     ADIO_Offset off, len, rem_len, user_buf_idx, *send_buf_idx;
 
-    MPI_Comm_size(fd->comm, &nprocs);
-    MPI_Comm_rank(fd->comm, &myrank);
+    cb_nodes = fd->hints->cb_nodes;
 
-    /* curr_to_proc[p] = amount of data sent to rank p that has already been accounted for so far.
-     * done_to_proc[p] = amount of data already sent to rank p in previous iterations.
-     * user_buf_idx = current location in user buffer.
-     * send_buf_idx[p] = index to user buffer for sending this rank's write data to rank p.
+    /* curr_to_proc[p]: amount of data sent to aggregator p that has already
+     *     been accounted for so far, for all previous two-phase rounds.
+     * done_to_proc[p]: amount of data already sent to aggregator p in the
+     *     previous two-phase round.
+     * user_buf_idx: current location in user buffer.
+     * send_buf_idx[p]: index pointing to send_buf[p], the buffer for sending
+     *     this rank's write data to aggregator p.
      */
-    curr_to_proc = (MPI_Count*) ADIOI_Calloc(nprocs, sizeof(MPI_Count));
-    send_buf_idx = (ADIO_Offset*) ADIOI_Calloc(nprocs, sizeof(ADIO_Offset));
+    curr_to_proc = (MPI_Count*) ADIOI_Calloc(cb_nodes, sizeof(MPI_Count));
+    send_buf_idx = (ADIO_Offset*) ADIOI_Calloc(cb_nodes, sizeof(ADIO_Offset));
 
-    done_to_proc = sent_to_proc;
+    done_to_proc = sent_to_aggr;
 
     user_buf_idx = flat_buf->indices[0];
     flat_buf_idx = 0;
     n_buftypes = 0;
     flat_buf_sz = flat_buf->blocklens[0];
 
-    /* flat_buf_idx = current index into flattened buftype
-     * flat_buf_sz = size of current contiguous component in flattened buf
+    /* flat_buf_idx: current index into flattened buftype
+     * flat_buf_sz: size of current contiguous component in flattened buf
+     * contig_access_count: the number of contiguous file segments this
+     *     rank writes to. Each segment is described by offset_list[i] and
+     *     len_list[i].
+     */
+
+    /* for each contiguous off-len in this rank's file view, pack write data
+     * into send buffer.
      */
     for (i = 0; i < contig_access_count; i++) {
         off = offset_list[i];
-        rem_len = (ADIO_Offset) len_list[i];
+        rem_len = len_list[i];
 
-        /*this request may span to more than one process */
+        /* this off-len request may span to more than one I/O aggregator */
         while (rem_len != 0) {
-            len = rem_len;
-            /* NOTE: len value is modified by ADIOI_Calc_aggregator() to be no
-             * longer than the single region that processor "p" is responsible
-             * for.
+            /* NOTE: len will be modified by ADIOI_Calc_aggregator() to be no
+             * more than a file stripe that aggregator "p" is responsible for.
+             * Note p is not the MPI rank ID, It is the array index to
+             * fd->hints->ranklist[].
              */
+            len = rem_len;
             p = ADIOI_LUSTRE_Calc_aggregator(fd, off, &len);
 
+            /* send_size[p]: amount of this rank sent to aggregtor p in this round.
+             * send_buf_idx[p] points to the starting location in send_buf[p]
+             *     for copying data from user buffer, buf, over.
+             *     send_buf_idx[p] is incremented in ADIOI_BUF_COPY and once
+             *     send_buf_idx[p] reaches to send_size[p], the copy is done
+             *     for aggregator p.
+             */
             if (send_buf_idx[p] < send_size[p]) {
                 if (curr_to_proc[p] + len > done_to_proc[p]) {
                     if (done_to_proc[p] > curr_to_proc[p]) {
                         size = MPL_MIN(curr_to_proc[p] + len -
                                        done_to_proc[p], send_size[p] - send_buf_idx[p]);
                         buf_incr = done_to_proc[p] - curr_to_proc[p];
-                        ADIOI_BUF_INCR buf_incr = (curr_to_proc[p] + len - done_to_proc[p]);
+                        ADIOI_BUF_INCR
+                        buf_incr = curr_to_proc[p] + len - done_to_proc[p];
                         curr_to_proc[p] = done_to_proc[p] + size;
-                    ADIOI_BUF_COPY} else {
+                        ADIOI_BUF_COPY
+                    } else {
                         size = MPL_MIN(len, send_size[p] - send_buf_idx[p]);
                         buf_incr = len;
                         curr_to_proc[p] += size;
                     ADIOI_BUF_COPY}
+int myrank; MPI_Comm_rank(fd->comm, &myrank);
                     if (send_buf_idx[p] == send_size[p] && p != myrank) {
                         CACHE_REQ(send_list[p], send_size[p], send_buf[p])
                     }
                 } else {
                     curr_to_proc[p] += len;
                     buf_incr = len;
-                ADIOI_BUF_INCR}
+                    ADIOI_BUF_INCR
+                }
             } else {
                 buf_incr = len;
-            ADIOI_BUF_INCR}
+                ADIOI_BUF_INCR
+            }
+            /* len is the amount of data copied */
             off += len;
             rem_len -= len;
         }
     }
 
-    /* update sent_to_proc[] amount of data sent to each rank i so far */
-    for (i = 0; i < nprocs; i++)
+    /* update sent_to_aggr[] amount of data sent to each rank i so far */
+    for (i = 0; i < cb_nodes; i++)
         if (send_size[i])
-            sent_to_proc[i] = curr_to_proc[i];
+            sent_to_aggr[i] = curr_to_proc[i];
 
     ADIOI_Free(send_buf_idx);
     ADIOI_Free(curr_to_proc);
