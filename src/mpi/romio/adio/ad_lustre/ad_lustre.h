@@ -11,9 +11,9 @@
 
 #include "adio.h"
 #include <unistd.h>
-#include <linux/types.h>
 
 #ifdef __linux__
+#include <linux/types.h>
 #include <sys/ioctl.h>  /* necessary for: */
 #include <time.h>
 #ifndef __USE_GNU
@@ -27,11 +27,13 @@
 
 #include "ad_tuning.h"
 
+#ifndef MIMIC_LUSTRE
 #ifdef HAVE_LUSTRE_LUSTRE_USER_H
 #include <lustre/lustre_user.h>
 #endif
 #ifdef HAVE_LINUX_LUSTRE_LUSTRE_USER_H
 #include <linux/lustre/lustre_user.h>
+#endif
 #endif
 
 

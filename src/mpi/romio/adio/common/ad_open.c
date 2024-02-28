@@ -312,6 +312,12 @@ static int build_cb_config_list(ADIO_File fd,
         rank_ct = ADIOI_cb_config_list_parse(fd->hints->cb_config_list,
                                              array, tmp_ranklist, fd->hints->cb_nodes);
 
+#ifdef MIMIC_LUSTRE
+        int i;
+        for (i=0; i<procs; i++) tmp_ranklist[i] = i;
+        if (procs >= fd->hints->cb_nodes) rank_ct = fd->hints->cb_nodes;
+#endif
+
         /* store the ranklist using the minimum amount of memory */
         if (rank_ct > 0) {
             fd->hints->ranklist = (int *) ADIOI_Malloc(sizeof(int) * rank_ct);
