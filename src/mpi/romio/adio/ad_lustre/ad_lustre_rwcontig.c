@@ -160,9 +160,6 @@ static void ADIOI_LUSTRE_IOContig(ADIO_File fd, const void *buf, MPI_Aint count,
     static char myname[] = "ADIOI_LUSTRE_IOCONTIG";
     char *p;
 
-// err = 0; goto fn_exit;
-// int ost = (offset/fd->hints->striping_unit) % fd->hints->striping_factor;
-// int rank; MPI_Comm_rank(MPI_COMM_WORLD,&rank); printf("%4d: %s offset=%6lld MB len=%6d MB OST=%3d\n",rank,__func__,offset/1048576, count/1048576,ost);
     if (count == 0) {
         err = 0;
         goto fn_exit;
@@ -174,6 +171,21 @@ static void ADIOI_LUSTRE_IOContig(ADIO_File fd, const void *buf, MPI_Aint count,
     if (file_ptr_type == ADIO_INDIVIDUAL) {
         offset = fd->fp_ind;
     }
+
+#ifdef WKL_DEBUG
+int rank; MPI_Comm_rank(MPI_COMM_WORLD,&rank);
+if (io_mode)  { /* write mode */
+    static int first_stripe_id=-1;
+    ADIO_Offset stripe_id = (offset / fd->hints->striping_unit) % fd->hints->  cb_nodes;
+    if (first_stripe_id == -1) {
+        first_stripe_id = stripe_id;
+       printf("%2d First: %s file %s pwrite offset=%lld len=%lld stripe %d\n"  ,rank,__func__,fd->filename,offset,len,first_stripe_id);
+    }
+    else if (stripe_id != first_stripe_id) printf("%2d Error: %s pwrite offse  t=%lld len=%lld not same stripe %d\n",rank,__func__,offset,len,first_stripe_id  );
+}
+else
+    printf("%2d %s line %d pread offset=%lld len=%lld\n",rank,__func__,__LINE__,offset,len);
+#endif
 
     if ((!io_mode && !fd->direct_read) || (io_mode && !fd->direct_write)) {
 
