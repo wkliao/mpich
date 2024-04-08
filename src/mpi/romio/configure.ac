@@ -1532,6 +1532,11 @@ if test "$ac_cv_func_usleep" = "yes" ; then
     PAC_FUNC_NEEDS_DECL([#include <unistd.h>],usleep)
 fi
 
+AC_CHECK_FUNCS(aligned_alloc)
+if test "$ac_cv_func_aligned_alloc" = "yes" ; then
+    PAC_FUNC_NEEDS_DECL([#include <stdlib.h>],aligned_alloc)
+fi
+
 #
 # Create the directory lists for the Makefile
 FILE_SYS_DIRS=""
@@ -1612,6 +1617,15 @@ if test "$FROM_MPICH" = no ; then
 
    AC_CHECK_FUNCS([MPIR_Ext_datatype_iscontig], [],
                   [AC_SEARCH_LIBS([MPIR_Ext_datatype_iscontig], [mpi])])
+
+   AC_CHECK_FUNCS([MPL_create_pathname], [],
+                  [AC_SEARCH_LIBS([MPL_create_pathname], [mpi mpl])])
+
+   AC_CHECK_FUNCS([MPL_strnapp], [],
+                  [AC_SEARCH_LIBS([MPL_strnapp], [mpi mpl])])
+
+   AC_CHECK_FUNCS([MPL_aligned_alloc], [],
+                  [AC_SEARCH_LIBS([MPL_aligned_alloc], [mpi mpl])])
 fi
 
 CPPFLAGS=$saved_CPPFLAGS
