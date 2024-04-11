@@ -201,49 +201,11 @@ elif test "x$MPI_IMPL" = xopen_mpi ; then
    AC_DEFINE([MPI_IMPL_IS_OMPI], [1], [Define if MPI implementation is OpenMPI])
 fi
 
-# MPL
-AC_ARG_VAR([MPLLIBNAME],[can be used to override the name of the MPL library (default: "mpl")])
-MPLLIBNAME=${MPLLIBNAME:-"mpl"}
-
-AC_ARG_WITH([mpl-prefix],
-            [AS_HELP_STRING([[--with-mpl-prefix[=DIR]]],
-                            [use the MPL library installed in DIR. Pass
-                             "embedded" to force usage of the MPL source
-                             distributed with Hydra.])],
-            [],dnl action-if-given
-            [with_mpl_prefix=embedded]) dnl action-if-not-given
-
-# When building ROMIO stand alone, we do not need to build MPL
-if test "x$build_ROMIO_EMBEDDED" = xyes; then
-   # Controls whether we go recursively into the MPL dir when running "dist"
-   # rules like "make distclean".  Technically we are cheating whenever
-   # DIST_SUBDIRS is not a superset of SUBDIRS, but we don't want to
-   # double-distclean and similar.
-   if test "$FROM_MPICH" = "no" && test "$FROM_OMPI" = "no"; then
-      if test "$with_mpl_prefix" = "embedded" ; then
-         mpl_srcdir='mpl'
-         mpl_builddir='$(top_builddir)/mpl'
-         mpl_dist_srcdir='$(mpl_srcdir)'
-         mpl_subdir_args="--disable-versioning --enable-embedded"
-         PAC_CONFIG_SUBDIR_ARGS([mpl],[$mpl_subdir_args],[],[AC_MSG_ERROR(MPL configure failed)])
-         mpl_includedir='-I$(top_builddir)/mpl/include -I$(top_srcdir)/mpl/include'
-         mpl_libdir='-L$(top_builddir)/mpl'
-         mpl_lib='$(top_builddir)'"/mpl/lib${MPLLIBNAME}.la"
-      else
-         # The user specified an already-installed MPL; just sanity check, don't
-         # subconfigure it
-         AS_IF([test -s "${with_mpl_prefix}/include/mplconfig.h"],
-               [:],[AC_MSG_ERROR([the MPL installation in "${with_mpl_prefix}" appears broken])])
-         mpl_includedir="-I${with_mpl_prefix}/include"
-         mpl_libdir="-L${with_mpl_prefix}/lib"
-         mpl_lib="-l${MPLLIBNAME}"
-      fi
-   elif test "$FROM_MPICH" = "yes" ; then
-      # we are configuring romio inside mpich. MPICH should configured MPL already,
-      # just set mpl_includedir and source mpl/localdefs if any.
-      pac_skip_mpl_lib=yes
-      PAC_CONFIG_MPL
-   fi
+if test "$FROM_MPICH" = "yes" ; then
+   # we are configuring romio inside mpich. MPICH should configured MPL already,
+   # just set mpl_includedir and source mpl/localdefs if any.
+   pac_skip_mpl_lib=yes
+   PAC_CONFIG_MPL
    AC_SUBST([mpl_srcdir])
    AC_SUBST([mpl_builddir])
    AC_SUBST([mpl_dist_srcdir])
