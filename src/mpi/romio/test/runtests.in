@@ -416,6 +416,11 @@ echo '**** Testing fstype_prefix ****'
 $mpirun -np 2 ${valgrind_opt} ./fstype_prefix -f $FILENAME
 CleanExe fstype_prefix
 #
+OutTime
+MakeExe ghost_cell
+echo '**** Testing ghost_cell ****'
+$mpirun -np 4 ${valgrind_opt} ./ghost_cell -q -f $FILENAME
+#
 
 #
 if [ @NOF77@ = 0 ] ; then

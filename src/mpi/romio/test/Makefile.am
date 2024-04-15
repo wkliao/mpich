@@ -23,7 +23,7 @@ CTESTS = simple async coll_test misc file_info excl \
      atomicity noncontig i_noncontig noncontig_coll split_coll shared_fp \
      psimple error status noncontig_coll2 aggregation1 aggregation2 \
      async-multiple ordered_fp hindexed types_with_zeros darray_read syshints \
-     fstype_prefix
+     fstype_prefix ghost_cell
 
 SKIP_TESTS = perf coll_perf large_array large_file external32
 
