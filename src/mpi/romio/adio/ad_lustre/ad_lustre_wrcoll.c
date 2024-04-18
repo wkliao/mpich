@@ -519,7 +519,7 @@ static void ADIOI_LUSTRE_Exch_and_write(ADIO_File fd, const void *buf,
      * by hint "ds_in_coll".
      */
     /* check the hint for data sieving */
-    data_sieving = fd->hints->fs_hints.lustre.ds_in_coll;
+    data_sieving = fd->hints->ds_write;
 
     for (m = 0; m < max_ntimes; m++) {
         /* go through all others_req and my_req to check which will be received
