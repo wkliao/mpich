@@ -32,8 +32,6 @@ void ADIOI_LUSTRE_SetInfo(ADIO_File fd, MPI_Info users_info, int *error_code)
         fd->hints->fs_hints.lustre.co_ratio = 1;
         ADIOI_Info_set(fd->info, "romio_lustre_coll_threshold", "0");
         fd->hints->fs_hints.lustre.coll_threshold = 0;
-        ADIOI_Info_set(fd->info, "romio_lustre_ds_in_coll", "enable");
-        fd->hints->fs_hints.lustre.ds_in_coll = ADIOI_HINT_ENABLE;
 
 #ifdef HAVE_LUSTRE_LOCKAHEAD
         /* Set lock ahead default hints */
@@ -129,12 +127,6 @@ void ADIOI_LUSTRE_SetInfo(ADIO_File fd, MPI_Info users_info, int *error_code)
         ADIOI_Info_check_and_install_int(fd, users_info, "romio_lustre_coll_threshold",
                                          &(fd->hints->fs_hints.lustre.coll_threshold), myname,
                                          error_code);
-
-        /* ds_in_coll: disable data sieving in collective IO */
-        ADIOI_Info_check_and_install_enabled(fd, users_info, "romio_lustre_ds_in_coll",
-                                             &(fd->hints->fs_hints.lustre.ds_in_coll), myname,
-                                             error_code);
-
     }
     /* set the values for collective I/O and data sieving parameters */
     ADIOI_GEN_SetInfo(fd, users_info, error_code);
