@@ -1480,7 +1480,6 @@ if test $FROM_OMPI = yes ; then
          [DEFINE_HAVE_MPI_GREQUEST_EXTENSIONS="#include \"ompi_grequestx.h\""],
          [DEFINE_HAVE_MPI_GREQUEST_EXTENSIONS="#undef HAVE_MPI_GREQUEST_EXTENSIONS"])
 
-   AC_DEFINE(HAVE_DECL_MPI_COMBINER_HINDEXED_BLOCK, 1, [Define if MPI library provides HINDEXED_BLOCK datatype])
 elif test $FROM_MPICH = yes ; then
    # For now, separate the mpich from mpich cases
    MPICH_HOME=`dirname $ROMIO_HOME`
@@ -1523,7 +1522,6 @@ elif test $FROM_MPICH = yes ; then
    # AC_DEFINE(HAVE_MPIIO_CONST, const, Set if MPI-IO prototypes use const qualifier)
    AC_DEFINE(HAVE_MPI_TYPE_SIZE_X, 1, [Define if MPI library provides MPI_TYPE_SIZE_X])
    AC_DEFINE(HAVE_MPI_STATUS_SET_ELEMENTS_X, 1, [Define if MPI library provides MPI_STATUS_SET_ELEMENTS_X])
-   AC_DEFINE(HAVE_DECL_MPI_COMBINER_HINDEXED_BLOCK, 1, [Define if MPI library provides HINDEXED_BLOCK datatype])
    AC_DEFINE(HAVE_MPIX_TYPE_IOV, 1, [Define if MPI library provides MPIX_Type_iov and MPIX_Type_iov_len])
 fi
 
@@ -1549,7 +1547,6 @@ if test $WITHIN_KNOWN_MPI_IMPL = no ; then
                  [[#include <mpi.h>]])
    # HAVE_MPIIO_CONST is now determined by whether MPI_VERSION >= 3
    # PAC_TEST_NEEDS_CONST
-   AC_CHECK_DECLS([MPI_COMBINER_HINDEXED_BLOCK], [], [], [[#include <mpi.h>]])
    AC_CHECK_FUNCS(MPI_Type_size_x MPI_Status_set_elements_x)
 
    if test "x$build_ROMIO_EMBEDDED" = xno && test "x$ac_cv_func_MPI_Status_set_elements_x" = xyes ; then

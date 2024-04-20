@@ -833,10 +833,8 @@ static void ADIOI_Flatten(MPI_Datatype datatype, ADIOI_Flatlist_node * flat,
             }
             break;
 
-#if defined HAVE_DECL_MPI_COMBINER_HINDEXED_BLOCK && HAVE_DECL_MPI_COMBINER_HINDEXED_BLOCK
         case MPI_COMBINER_HINDEXED_BLOCK:
             is_hindexed_block = 1;
-#endif
             /* fall through */
         case MPI_COMBINER_INDEXED_BLOCK:
 #ifdef FLATTEN_DEBUG
@@ -1368,9 +1366,7 @@ static MPI_Count ADIOI_Count_contiguous_blocks(MPI_Datatype datatype, MPI_Count 
             }
             break;
 
-#if defined HAVE_DECL_MPI_COMBINER_HINDEXED_BLOCK && HAVE_DECL_MPI_COMBINER_HINDEXED_BLOCK
         case MPI_COMBINER_HINDEXED_BLOCK:
-#endif
         case MPI_COMBINER_INDEXED_BLOCK:
             top_count = ints[0];
             ADIOI_Type_ispredef(types[0], &old_is_predef);

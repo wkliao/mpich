@@ -284,13 +284,11 @@ int convert_mpi_pvfs2_dtype(MPI_Datatype * mpi_dtype, PVFS_Request * pvfs_dtype)
                 ADIOI_Free(old_pvfs_dtype);
                 fprintf(stderr, "convert_mpi_pvfs2_dtype: " "INDEXED_BLOCK is unsupported\n");
                 break;
-#if defined HAVE_DECL_MPI_COMBINER_HINDEXED_BLOCK && HAVE_DECL_MPI_COMBINER_HINDEXED_BLOCK
             case MPI_COMBINER_HINDEXED_BLOCK:
                 /* No native PVFS2 support for this operation currently */
                 ADIOI_Free(old_pvfs_dtype);
                 fprintf(stderr, "convert_mpi_pvfs2_dtype: " "HINDEXED_BLOCK is unsupported\n");
                 break;
-#endif
             case MPI_COMBINER_HINDEXED_INTEGER:
                 ADIOI_Free(old_pvfs_dtype);
                 fprintf(stderr, "convert_mpi_pvfs2_dtype: " "HINDEXED_INTEGER is unsupported\n");
