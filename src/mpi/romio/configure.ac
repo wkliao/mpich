@@ -1664,14 +1664,6 @@ if test "x$build_ROMIO_EMBEDDED" = xno; then
 
    AC_CHECK_DECLS([MPI_FILE_NULL], [], [], [[#include <mpi.h>]])
 
-   AC_CHECK_DECL([MPIIMPL_HAVE_MPI_COMBINER_DUP], [], [], [[#include <mpi.h>]])
-   if test "x${ac_cv_have_decl_MPIIMPL_HAVE_MPI_COMBINER_DUP}" = xno ; then
-      AC_CHECK_DECL([MPI_COMBINER_DUP],
-                    [AC_DEFINE([MPIIMPL_HAVE_MPI_COMBINER_DUP], [1],
-                               [whether MPI_COMBINER_DUP is defined])],
-                    [], [[#include <mpi.h>]])
-   fi
-
    AC_CHECK_DECL([MPIO_Request_c2f], [], [], [[#include <mpi.h>]])
    if test "x${ac_cv_have_decl_MPIO_Request_c2f}" = xno ; then
       AC_DEFINE([MPIO_Request_c2f], [MPI_Request_c2f],

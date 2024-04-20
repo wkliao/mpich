@@ -477,7 +477,6 @@ static void ADIOI_Flatten(MPI_Datatype datatype, ADIOI_Flatlist_node * flat,
      on datatype bounds or extent.  */
 
     switch (combiner) {
-#ifdef MPIIMPL_HAVE_MPI_COMBINER_DUP
         case MPI_COMBINER_DUP:
 #ifdef FLATTEN_DEBUG
             DBG_FPRINTF(stderr, "ADIOI_Flatten:: MPI_COMBINER_DUP\n");
@@ -487,7 +486,6 @@ static void ADIOI_Flatten(MPI_Datatype datatype, ADIOI_Flatlist_node * flat,
             if ((!old_is_predef) && (!old_is_contig))
                 ADIOI_Flatten(types[0], flat, st_offset, curr_index);
             break;
-#endif
         case MPI_COMBINER_SUBARRAY:
             if (ints[0] > 0) {
                 int dims = ints[0];
@@ -1227,7 +1225,6 @@ static MPI_Count ADIOI_Count_contiguous_blocks(MPI_Datatype datatype, MPI_Count 
     ADIOI_Type_decode(datatype, &combiner, &nints, &nadds, &ntypes, &ints, &adds, &types);
 
     switch (combiner) {
-#ifdef MPIIMPL_HAVE_MPI_COMBINER_DUP
         case MPI_COMBINER_DUP:
             ADIOI_Type_ispredef(types[0], &old_is_predef);
             ADIOI_Datatype_iscontig(types[0], &old_is_contig);
@@ -1238,7 +1235,6 @@ static MPI_Count ADIOI_Count_contiguous_blocks(MPI_Datatype datatype, MPI_Count 
                 (*curr_index)++;
             }
             break;
-#endif
         case MPI_COMBINER_SUBARRAY:
             {
                 int dims = ints[0];

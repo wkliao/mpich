@@ -275,12 +275,10 @@ int convert_mpi_pvfs2_dtype(MPI_Datatype * mpi_dtype, PVFS_Request * pvfs_dtype)
                                             (int64_t *) & arr_addr[0], *old_pvfs_dtype, pvfs_dtype);
                 ADIOI_Free(pvfs_arr_disp);
                 break;
-#ifdef MPIIMPL_HAVE_MPI_COMBINER_DUP
             case MPI_COMBINER_DUP:
                 leaf = convert_mpi_pvfs2_dtype(&arr_dtype[0], old_pvfs_dtype);
                 ret = PVFS_Request_contiguous(1, *old_pvfs_dtype, pvfs_dtype);
                 break;
-#endif
             case MPI_COMBINER_INDEXED_BLOCK:
                 /* No native PVFS2 support for this operation currently */
                 ADIOI_Free(old_pvfs_dtype);
@@ -337,9 +335,7 @@ int convert_mpi_pvfs2_dtype(MPI_Datatype * mpi_dtype, PVFS_Request * pvfs_dtype)
 #endif
 
         if (leaf != 1)
-#ifdef MPIIMPL_HAVE_MPI_COMBINER_DUP
             if (combiner != MPI_COMBINER_DUP)
-#endif
                 MPI_Type_free(&arr_dtype[0]);
 
         ADIOI_Free(arr_int);
@@ -580,11 +576,9 @@ void print_dtype_info(int combiner,
                 fprintf(stderr, "(%d,%lld) ", arr_int[1 + i], (long long) arr_addr[i]);
             fprintf(stderr, "]\n");
             break;
-#ifdef MPIIMPL_HAVE_MPI_COMBINER_DUP
         case MPI_COMBINER_DUP:
             fprintf(stderr, "DUP\n");
             break;
-#endif
         default:
             fprintf(stderr, "no available information on this datatype");
     }

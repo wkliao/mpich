@@ -70,12 +70,7 @@ int MPI_File_get_view(MPI_File fh, MPI_Offset * disp, MPI_Datatype * etype,
     if (is_predef)
         *etype = adio_fh->etype;
     else {
-#ifdef MPIIMPL_HAVE_MPI_COMBINER_DUP
         MPI_Type_dup(adio_fh->etype, &copy_etype);
-#else
-        MPI_Type_contiguous(1, adio_fh->etype, &copy_etype);
-#endif
-
         MPI_Type_commit(&copy_etype);
         *etype = copy_etype;
     }
@@ -83,12 +78,7 @@ int MPI_File_get_view(MPI_File fh, MPI_Offset * disp, MPI_Datatype * etype,
     if (is_predef)
         *filetype = adio_fh->filetype;
     else {
-#ifdef MPIIMPL_HAVE_MPI_COMBINER_DUP
         MPI_Type_dup(adio_fh->filetype, &copy_filetype);
-#else
-        MPI_Type_contiguous(1, adio_fh->filetype, &copy_filetype);
-#endif
-
         MPI_Type_commit(&copy_filetype);
         *filetype = copy_filetype;
     }

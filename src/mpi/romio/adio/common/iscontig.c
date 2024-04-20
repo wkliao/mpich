@@ -69,9 +69,7 @@ void ADIOI_Datatype_iscontig(MPI_Datatype datatype, int *flag)
         case MPI_COMBINER_NAMED:
             *flag = 1;
             break;
-#ifdef MPIIMPL_HAVE_MPI_COMBINER_DUP
         case MPI_COMBINER_DUP:
-#endif
         case MPI_COMBINER_CONTIGUOUS:
             {
                 int *ints;
