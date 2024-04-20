@@ -1620,6 +1620,8 @@ PAC_ENABLE_COVERAGE
 
 # check some MPI constants and data types
 if test "x$build_ROMIO_EMBEDDED" = xno; then
+
+   # MPICH defines MPI_FILE_DEFINED in its mpi.h, but not OpenMPI's
    AC_CHECK_DECL([MPI_FILE_DEFINED], [], [], [[#include <mpi.h>]])
    if test "x${ac_cv_have_decl_MPI_FILE_DEFINED}" = xno ; then
       AC_CHECK_TYPE([MPI_File],
@@ -1628,6 +1630,7 @@ if test "x$build_ROMIO_EMBEDDED" = xno; then
                     [], [[#include <mpi.h>]])
    fi
 
+   # MPICH defines HAVE_MPI_OFFSET in its mpi.h, but not OpenMPI's
    AC_CHECK_DECL([HAVE_MPI_OFFSET], [], [], [[#include <mpi.h>]])
    if test "x${ac_cv_have_decl_HAVE_MPI_OFFSET}" = xno ; then
       AC_CHECK_TYPE([MPI_Offset],
@@ -1635,8 +1638,6 @@ if test "x$build_ROMIO_EMBEDDED" = xno; then
                                [whether type MPI_Offset is defined])],
                     [], [[#include <mpi.h>]])
    fi
-
-   AC_CHECK_DECLS([MPI_FILE_NULL], [], [], [[#include <mpi.h>]])
 
    AC_CHECK_DECL([MPIO_Request_c2f], [], [], [[#include <mpi.h>]])
    if test "x${ac_cv_have_decl_MPIO_Request_c2f}" = xno ; then
