@@ -707,27 +707,6 @@ dnl   fi
    PAC_TEST_MPI_COMBINERS
    PAC_TEST_MPI_HAVE_OFFSET_KIND
 fi
-#
-# check if darray and subarray constructors are defined in the MPI
-# implementation
-if test $WITHIN_KNOWN_MPI_IMPL = no ; then
-   PAC_MPI_DARRAY_SUBARRAY
-fi
-if test $FROM_MPICH = yes ; then
-   dnl Made this a message instead of a warning because the warning is
-   dnl likely to confuse users.
-   AC_MSG_RESULT([Overriding Array test for MPICH])
-   unset BUILD_MPI_ARRAY
-   AC_DEFINE(HAVE_MPI_DARRAY_SUBARRAY,1,[Define if Darray is available])
-   HAVE_MPI_DARRAY_SUBARRAY="#define HAVE_MPI_DARRAY_SUBARRAY"
-   MPI_FARRAY1="!"
-   MPI_FARRAY2="!"
-   MPI_FARRAY3="!"
-   MPI_FARRAY4="!"
-   MPI_FARRAY5="!"
-   MPI_FARRAY6="!"
-   MPI_FARRAY7="!"
-fi
 
 # Check to see if weak symbols work correctly
 if test "$enable_weak_symbols" = "yes" ; then
@@ -1491,8 +1470,6 @@ if test $FROM_OMPI = yes ; then
    MPI_LIB="-lmpi"
    MPIRUN='${bindir}/mpirun -mca io romio321'
    AC_DEFINE([HAVE_MPI_OFFSET], [1], [Will always be 1 - OMPI has MPI_Offset])
-   AC_DEFINE(HAVE_MPI_DARRAY_SUBARRAY,1,[Define if Darray is available])
-   HAVE_MPI_DARRAY_SUBARRAY="#define HAVE_MPI_DARRAY_SUBARRAY"
    # Open MPI: see comments in mpi-io/mpioprof.h
    DEFINE_HAVE_MPI_GREQUEST="#define HAVE_MPI_GREQUEST 1"
 
@@ -1652,12 +1629,6 @@ if test "$BUILD_MPI_INFO" = 1 ; then
         EXTRA_SRC_DIRS="$EXTRA_SRC_DIRS mpi2-other/info/fortran"
     fi
 fi
-if test "$BUILD_MPI_ARRAY" = 1 ; then
-    EXTRA_SRC_DIRS="$EXTRA_SRC_DIRS mpi2-other/array"
-    if test "$NOF77" = 0 && test "$FROM_MPICH" != yes ; then
-        EXTRA_SRC_DIRS="$EXTRA_SRC_DIRS mpi2-other/array/fortran"
-    fi
-fi
 if test "$NOF77" = 0 && test "$FROM_MPICH" != yes ; then
    EXTRA_SRC_DIRS="$EXTRA_SRC_DIRS mpi-io/fortran"
 fi
@@ -1698,22 +1669,6 @@ if test "x$build_ROMIO_EMBEDDED" = xno; then
       AC_CHECK_DECL([MPI_COMBINER_DUP],
                     [AC_DEFINE([MPIIMPL_HAVE_MPI_COMBINER_DUP], [1],
                                [whether MPI_COMBINER_DUP is defined])],
-                    [], [[#include <mpi.h>]])
-   fi
-
-   AC_CHECK_DECL([MPIIMPL_HAVE_MPI_COMBINER_SUBARRAY], [], [], [[#include <mpi.h>]])
-   if test "x${ac_cv_have_decl_MPIIMPL_HAVE_MPI_COMBINER_SUBARRAY}" = xno ; then
-      AC_CHECK_DECL([MPI_COMBINER_SUBARRAY],
-                    [AC_DEFINE([MPIIMPL_HAVE_MPI_COMBINER_SUBARRAY], [1],
-                               [whether MPI_COMBINER_SUBARRAY is defined])],
-                    [], [[#include <mpi.h>]])
-   fi
-
-   AC_CHECK_DECL([MPIIMPL_HAVE_MPI_COMBINER_DARRAY], [], [], [[#include <mpi.h>]])
-   if test "x${ac_cv_have_decl_MPIIMPL_HAVE_MPI_COMBINER_DARRAY}" = xno ; then
-      AC_CHECK_DECL([MPI_COMBINER_DARRAY],
-                    [AC_DEFINE([MPIIMPL_HAVE_MPI_COMBINER_DARRAY], [1],
-                               [whether MPI_COMBINER_DARRAY is defined])],
                     [], [[#include <mpi.h>]])
    fi
 
@@ -1781,7 +1736,6 @@ AC_SUBST(F77IARGC)
 AC_SUBST(FORTRAN_MPI_OFFSET)
 AC_SUBST(NEEDS_MPI_FINT)
 AC_SUBST(HAVE_MPI_INFO)
-AC_SUBST(HAVE_MPI_DARRAY_SUBARRAY)
 AC_SUBST(DEFINE_MPI_OFFSET)
 AC_SUBST(DEFINE_HAVE_MPI_GREQUEST)
 AC_SUBST(DEFINE_HAVE_MPI_GREQUEST_EXTENSIONS)
@@ -1821,14 +1775,12 @@ AC_CONFIG_FILES([
     Makefile
     localdefs
     mpi2-other/info/Makefile
-    mpi2-other/array/Makefile
     test/Makefile
     test/misc.c
     test/large_file.c
     test-internal/Makefile
     include/mpio.h
     mpi2-other/info/fortran/Makefile
-    mpi2-other/array/fortran/Makefile
     test/fmisc.f
     test/fcoll_test.f
     test/pfcoll_test.f

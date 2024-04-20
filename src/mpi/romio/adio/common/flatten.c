@@ -488,7 +488,6 @@ static void ADIOI_Flatten(MPI_Datatype datatype, ADIOI_Flatlist_node * flat,
                 ADIOI_Flatten(types[0], flat, st_offset, curr_index);
             break;
 #endif
-#ifdef MPIIMPL_HAVE_MPI_COMBINER_SUBARRAY
         case MPI_COMBINER_SUBARRAY:
             if (ints[0] > 0) {
                 int dims = ints[0];
@@ -508,8 +507,6 @@ static void ADIOI_Flatten(MPI_Datatype datatype, ADIOI_Flatlist_node * flat,
                 MPI_Type_free(&stype);
             }
             break;
-#endif
-#ifdef MPIIMPL_HAVE_MPI_COMBINER_DARRAY
         case MPI_COMBINER_DARRAY:
             if (ints[2] > 0) {
                 int dims = ints[2];
@@ -543,7 +540,6 @@ static void ADIOI_Flatten(MPI_Datatype datatype, ADIOI_Flatlist_node * flat,
                 MPI_Type_free(&dtype);
             }
             break;
-#endif
         case MPI_COMBINER_CONTIGUOUS:
 #ifdef FLATTEN_DEBUG
             DBG_FPRINTF(stderr, "ADIOI_Flatten:: MPI_COMBINER_CONTIGUOUS\n");
@@ -1243,7 +1239,6 @@ static MPI_Count ADIOI_Count_contiguous_blocks(MPI_Datatype datatype, MPI_Count 
             }
             break;
 #endif
-#ifdef MPIIMPL_HAVE_MPI_COMBINER_SUBARRAY
         case MPI_COMBINER_SUBARRAY:
             {
                 int dims = ints[0];
@@ -1263,8 +1258,6 @@ static MPI_Count ADIOI_Count_contiguous_blocks(MPI_Datatype datatype, MPI_Count 
 
             }
             break;
-#endif
-#ifdef MPIIMPL_HAVE_MPI_COMBINER_DARRAY
         case MPI_COMBINER_DARRAY:
             {
                 int dims = ints[2];
@@ -1285,7 +1278,6 @@ static MPI_Count ADIOI_Count_contiguous_blocks(MPI_Datatype datatype, MPI_Count 
                 MPI_Type_free(&dtype);
             }
             break;
-#endif
         case MPI_COMBINER_CONTIGUOUS:
             top_count = ints[0];
             ADIOI_Type_ispredef(types[0], &old_is_predef);
