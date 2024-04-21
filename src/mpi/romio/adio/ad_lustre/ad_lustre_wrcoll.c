@@ -67,7 +67,7 @@ static void ADIOI_LUSTRE_W_Exchange_data(ADIO_File fd, const void *buf,
                                          ADIOI_Access *others_req,
                                          ADIO_Offset *send_buf_idx,
                                          MPI_Count *curr_to_proc,
-                                         MPI_Count *done_to_proc, int *hole,
+                                         MPI_Count *done_to_proc,
                                          int iter, MPI_Aint buftype_extent,
                                          ADIO_Offset *buf_idx,
                                          ADIO_Offset **srt_off, MPI_Count **srt_len, MPI_Count *srt_num,
@@ -395,8 +395,8 @@ static void ADIOI_LUSTRE_Exch_and_write(ADIO_File fd, const void *buf,
      * at least another 8Mbytes of temp space is unacceptable.
      */
 
-    int hole, i, m, flag, ntimes = 1;
-    MPI_Count max_ntimes, req_len, send_len;
+    int i, flag, ntimes = 1;
+    MPI_Count m, max_ntimes, req_len, send_len;
     ADIO_Offset st_loc = -1, end_loc = -1, min_st_loc, max_end_loc;
     ADIO_Offset off, req_off, send_off, iter_st_off, *off_list;
     ADIO_Offset max_size, step_size = 0;
@@ -410,7 +410,6 @@ static void ADIOI_LUSTRE_Exch_and_write(ADIO_File fd, const void *buf,
     MPI_Status status;
     MPI_Aint lb, buftype_extent;
     int stripe_size = striping_info[0], avail_cb_nodes = striping_info[2];
-    int data_sieving = 0;
     ADIO_Offset *srt_off = NULL;
     MPI_Count *srt_len = NULL;
     MPI_Count srt_num = 0;
@@ -520,18 +519,6 @@ static void ADIOI_LUSTRE_Exch_and_write(ADIO_File fd, const void *buf,
 
     iter_st_off = min_st_loc;
 
-    /* Although we have recognized the data according to OST index,
-     * a read-modify-write will be done if there is a hole between the data.
-     * For example: if blocksize=60, xfersize=30 and stripe_size=100,
-     * then rank0 will collect data [0, 30] and [60, 90] then write. There
-     * is a hole in [30, 60], which will cause a read-modify-write in [0, 90].
-     *
-     * To reduce its impact on the performance, we can disable data sieving
-     * by hint "ds_in_coll".
-     */
-    /* check the hint for data sieving */
-    data_sieving = fd->hints->ds_write;
-
     for (m = 0; m < max_ntimes; m++) {
         /* go through all others_req and my_req to check which will be received
          * and sent in this iteration.
@@ -596,88 +583,60 @@ static void ADIOI_LUSTRE_Exch_and_write(ADIO_File fd, const void *buf,
                 recv_curr_offlen_ptr[i] = j;
             }
         }
-        /* use variable "hole" to pass data_sieving flag into W_Exchange_data */
-        hole = data_sieving;
+
         ADIOI_LUSTRE_W_Exchange_data(fd, buf, write_buf, flat_buf, offset_list,
                                      len_list, send_size, recv_size, off, real_size,
                                      recv_count, recv_start_pos,
                                      sent_to_proc, nprocs, myrank,
                                      contig_access_count,
                                      striping_info, others_req, send_buf_idx,
-                                     curr_to_proc, done_to_proc, &hole, m,
+                                     curr_to_proc, done_to_proc, m,
                                      buftype_extent, this_buf_idx,
                                      &srt_off, &srt_len, &srt_num, error_code);
 
         if (*error_code != MPI_SUCCESS)
             goto over;
 
-        flag = 0;
-        for (i = 0; i < nprocs; i++)
-            if (recv_count[i]) {
-                flag = 1;
-                break;
-            }
-        if (flag) {
-            /* check whether to do data sieving */
-            if (data_sieving == ADIOI_HINT_ENABLE) {
-                ADIOI_LUSTRE_WR_LOCK_AHEAD(fd, striping_info[2], off, error_code);
-                ADIO_WriteContig(fd, write_buf, real_size, MPI_BYTE,
-                                 ADIO_EXPLICIT_OFFSET, off, &status, error_code);
-            } else {
-                /* if there is no hole, write data in one time;
-                 * otherwise, write data in several times */
-                if (!hole) {
-                    ADIOI_LUSTRE_WR_LOCK_AHEAD(fd, striping_info[2], off, error_code);
-                    ADIO_WriteContig(fd, write_buf, real_size, MPI_BYTE,
-                                     ADIO_EXPLICIT_OFFSET, off, &status, error_code);
-                } else {
-                    block_offset = -1;
-                    block_len = 0;
-                    for (i = 0; i < srt_num; ++i) {
-                        if (srt_off[i] < off + real_size && srt_off[i] >= off) {
-                            if (block_offset == -1) {
-                                block_offset = srt_off[i];
-                                block_len = srt_len[i];
-                            } else {
-                                if (srt_off[i] == block_offset + block_len) {
-                                    block_len += srt_len[i];
-                                } else {
-                                    ADIOI_LUSTRE_WR_LOCK_AHEAD(fd, striping_info[2], block_offset,
-                                                               error_code);
-                                    ADIO_WriteContig(fd, write_buf + block_offset - off, block_len,
-                                                     MPI_BYTE, ADIO_EXPLICIT_OFFSET, block_offset,
-                                                     &status, error_code);
-                                    if (*error_code != MPI_SUCCESS)
-                                        goto over;
-                                    block_offset = srt_off[i];
-                                    block_len = srt_len[i];
-                                }
-                            }
-                        }
-                    }
-                    if (block_offset != -1) {
-                        ADIOI_LUSTRE_WR_LOCK_AHEAD(fd, striping_info[2], block_offset, error_code);
-                        ADIO_WriteContig(fd,
-                                         write_buf + block_offset - off,
-                                         block_len,
-                                         MPI_BYTE, ADIO_EXPLICIT_OFFSET,
-                                         block_offset, &status, error_code);
-                        if (*error_code != MPI_SUCCESS)
-                            goto over;
-                    }
-                }
-            }
+        iter_st_off += max_size;
+
+        /* if there is no data to write for this iteration m */
+        if (srt_num == 0)
+            continue;
+
+        /* lock ahead the file starting from off */
+        ADIOI_LUSTRE_WR_LOCK_AHEAD(fd, striping_info[2], off, error_code);
+        if (*error_code != MPI_SUCCESS)
+            goto over;
+
+        /* When srt_num == 1, either there is no hole in the write buffer or
+         * the file domain has been read into write buffer and updated with the
+         * received write data. When srt_num > 1, holes have been found and the
+         * list of sorted offset-length pairs describing noncontiguous writes
+         * have been constructed. Call writes for each offset-length pair. Note
+         * the offset-length pairs (represented by srt_off, srt_len, and
+         * srt_num) have been coalesced in ADIOI_LUSTRE_W_Exchange_data().
+         */
+        for (i = 0; i < srt_num; i++) {
+            MPI_Status status;
+
+            /* all write requests in this round should fall into this range of
+             * [off, off+real_size). This assertion should never fail.
+             */
+            ADIOI_Assert(srt_off[i] < off + real_size && srt_off[i] >= off);
+
+            ADIO_WriteContig(fd, write_buf + (srt_off[i] - off), srt_len[i],
+                             MPI_BYTE, ADIO_EXPLICIT_OFFSET, srt_off[i], &status, error_code);
+
             if (*error_code != MPI_SUCCESS)
                 goto over;
         }
-        iter_st_off += max_size;
     }
   over:
     if (srt_off)
         ADIOI_Free(srt_off);
     if (srt_len)
         ADIOI_Free(srt_len);
-    if (ntimes)
+    if (write_buf != NULL)
         ADIOI_Free(write_buf);
     ADIOI_Free(recv_curr_offlen_ptr);
     ADIOI_Free(off_list);
@@ -691,8 +650,8 @@ static void ADIOI_LUSTRE_W_Exchange_data(ADIO_File fd, const void *buf,
                                          ADIOI_Flatlist_node *flat_buf,
                                          ADIO_Offset *offset_list,
                                          ADIO_Offset *len_list, MPI_Count *send_size,
-                                         MPI_Count *recv_size, ADIO_Offset off,
-                                         MPI_Count size, MPI_Count *count,
+                                         MPI_Count *recv_size, ADIO_Offset real_off,
+                                         MPI_Count real_size, MPI_Count *recv_count,
                                          MPI_Count *start_pos,
                                          MPI_Count *sent_to_proc, int nprocs,
                                          int myrank,
@@ -701,7 +660,7 @@ static void ADIOI_LUSTRE_W_Exchange_data(ADIO_File fd, const void *buf,
                                          ADIOI_Access *others_req,
                                          ADIO_Offset *send_buf_idx,
                                          MPI_Count *curr_to_proc, MPI_Count *done_to_proc,
-                                         int *hole, int iter,
+                                         int iter,
                                          MPI_Aint buftype_extent,
                                          ADIO_Offset *buf_idx,
                                          ADIO_Offset **srt_off, MPI_Count **srt_len, MPI_Count *srt_num,
@@ -712,20 +671,19 @@ static void ADIOI_LUSTRE_W_Exchange_data(ADIO_File fd, const void *buf,
     MPI_Request *requests, *send_req;
     MPI_Datatype *recv_types;
     MPI_Status *statuses, status;
-    int sum_recv;
-    int data_sieving = *hole;
+    int sum_recv, hole, check_hole;
     static size_t malloc_srt_num = 0;
     size_t send_total_size;
-    static char myname[] = "ADIOI_W_EXCHANGE_DATA";
+    static char myname[] = "ADIOI_LUSTRE_W_Exchange_data";
 
-    /* create derived datatypes for recv */
+    /* calculate send receive metadata */
     *srt_num = 0;
     sum_recv = 0;
     nprocs_recv = 0;
     nprocs_send = 0;
     send_total_size = 0;
     for (i = 0; i < nprocs; i++) {
-        *srt_num += count[i];
+        *srt_num += recv_count[i];
         sum_recv += recv_size[i];
         if (recv_size[i])
             nprocs_recv++;
@@ -735,15 +693,14 @@ static void ADIOI_LUSTRE_W_Exchange_data(ADIO_File fd, const void *buf,
         }
     }
 
-    *hole = (size > sum_recv) ? 1 : 0;
-
+    /* create derived datatypes for recv */
     recv_types = (MPI_Datatype *) ADIOI_Malloc((nprocs_recv + 1) * sizeof(MPI_Datatype));
     /* +1 to avoid a 0-size malloc */
 
     j = 0;
     for (i = 0; i < nprocs; i++) {
         if (recv_size[i]) {
-            ADIOI_Type_create_hindexed_x(count[i],
+            ADIOI_Type_create_hindexed_x(recv_count[i],
                                          &(others_req[i].lens[start_pos[i]]),
                                          &(others_req[i].mem_ptrs[start_pos[i]]),
                                          MPI_BYTE, recv_types + j);
@@ -753,46 +710,63 @@ static void ADIOI_LUSTRE_W_Exchange_data(ADIO_File fd, const void *buf,
         }
     }
 
-    /* To avoid a read-modify-write,
-     * check if there are holes in the data to be written.
-     * For this, merge the (sorted) offset lists others_req using a heap-merge.
+    /* determine whether checking holes is necessary */
+    check_hole = 1;
+    if (*srt_num == 0) {
+        /* this process has nothing to receive and hence no hole */
+        check_hole = 0;
+        hole = 0;
+    } else if (fd->hints->ds_write == ADIOI_HINT_AUTO) {
+        if (*srt_num > fd->hints->ds_wr_lb) {
+            /* Number of offset-length pairs is too large, making merge sort
+             * expensive. Skip the sorting in hole checking and proceed with
+             * read-modify-write.
+             */
+            check_hole = 0;
+            hole = 1;
+        }
+        /* else: merge sort is less expensive, proceed to check_hole */
+    }
+    else if (fd->hints->ds_write == ADIOI_HINT_ENABLE) {
+        check_hole = 0;
+        hole = 1;
+    }
+    /* else: fd->hints->ds_write == ADIOI_HINT_DISABLE,
+     * proceed to check_hole, as we must construct srt_off and srt_len.
      */
 
-    if (*srt_num) {
+    if (check_hole) {
+        /* merge the offset-length pairs of all others_req[] (already sorted
+         * individually) into a single list of offset-length pairs (srt_off and
+         * srt_len) in an increasing order of file offsets using a heap-merge
+         * sorting algorithm.
+         */
         if (*srt_off == NULL || *srt_num > malloc_srt_num) {
-            /* must check srt_off against NULL, as the collective write can be
-             * called more than once */
+            /* Try to avoid malloc each round. If *srt_num is less than
+             * previous round, the already allocated space can be reused.
+             */
             if (*srt_off != NULL) {
                 ADIOI_Free(*srt_off);
                 ADIOI_Free(*srt_len);
             }
             *srt_off = (ADIO_Offset *) ADIOI_Malloc(*srt_num * sizeof(ADIO_Offset));
-            *srt_len = ADIOI_Malloc(*srt_num * sizeof(MPI_Offset));
+            *srt_len = (MPI_Count *) ADIOI_Malloc(*srt_num * sizeof(MPI_Count));
             malloc_srt_num = *srt_num;
         }
 
-        ADIOI_Heap_merge(others_req, count, *srt_off, *srt_len, start_pos,
+        ADIOI_Heap_merge(others_req, recv_count, *srt_off, *srt_len, start_pos,
                          nprocs, nprocs_recv, *srt_num);
-    }
 
-    /* In some cases (see John Bent ROMIO REQ # 835), an odd interaction
-     * between aggregation, nominally contiguous regions, and cb_buffer_size
-     * should be handled with a read-modify-write (otherwise we will write out
-     * more data than we receive from everyone else (inclusive), so override
-     * hole detection
-     */
-    if (*hole == 0) {
-        for (i = 0; i < *srt_num - 1; i++) {
-            if ((*srt_off)[i] + (*srt_len)[i] < (*srt_off)[i + 1]) {
-                *hole = 1;
-                break;
-            }
-        }
+        /* (*srt_num) has been updated in heap_merge() such that (*srt_off) and
+         * (*srt_len) were coalesced
+         */
+        hole = (*srt_num > 1);
     }
 
     /* check the hint for data sieving */
-    if (data_sieving == ADIOI_HINT_ENABLE && nprocs_recv && *hole) {
-        ADIO_ReadContig(fd, write_buf, size, MPI_BYTE, ADIO_EXPLICIT_OFFSET, off, &status, &err);
+    if (fd->hints->ds_write != ADIOI_HINT_DISABLE && hole) {
+        ADIO_ReadContig(fd, write_buf, real_size, MPI_BYTE, ADIO_EXPLICIT_OFFSET,
+                        real_off, &status, &err);
         // --BEGIN ERROR HANDLING--
         if (err != MPI_SUCCESS) {
             *error_code = MPIO_Err_create_code(err,
@@ -802,6 +776,18 @@ static void ADIOI_LUSTRE_W_Exchange_data(ADIO_File fd, const void *buf,
             return;
         }
         // --END ERROR HANDLING--
+
+        /* Once read, holes have been filled and thus the number of
+         * offset-length pairs, *srt_num, becomes one.
+         */
+        *srt_num = 1;
+        if (*srt_off == NULL) {
+            *srt_off = (ADIO_Offset *) ADIOI_Malloc(sizeof(ADIO_Offset));
+            *srt_len = (MPI_Count *) ADIOI_Malloc(sizeof(MPI_Count));
+            malloc_srt_num = 1;
+        }
+        (*srt_off)[0] = real_off;
+        (*srt_len)[0] = real_size;
     }
 
     if (fd->atomicity) {
