@@ -170,17 +170,6 @@ struct ADIOI_W_Iexchange_data_vars {
 };
 
 
-void ADIOI_Fill_send_buffer(ADIO_File fd, void *buf, ADIOI_Flatlist_node
-                            * flat_buf, char **send_buf, ADIO_Offset
-                            * offset_list, ADIO_Offset * len_list, MPI_Count * send_size,
-                            MPI_Request * requests, MPI_Count * sent_to_proc,
-                            int nprocs, int myrank,
-                            MPI_Count contig_access_count,
-                            ADIO_Offset min_st_offset, ADIO_Offset fd_size,
-                            ADIO_Offset * fd_start, ADIO_Offset * fd_end,
-                            MPI_Count * send_buf_idx, MPI_Count * curr_to_proc,
-                            MPI_Count * done_to_proc, int iter, MPI_Aint buftype_extent);
-
 /* prototypes of functions used for nonblocking collective writes only. */
 static void ADIOI_GEN_IwriteStridedColl_inter(ADIOI_NBC_Request *, int *);
 static void ADIOI_GEN_IwriteStridedColl_indio(ADIOI_NBC_Request *, int *);
