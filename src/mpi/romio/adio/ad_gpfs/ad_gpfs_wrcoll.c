@@ -63,7 +63,7 @@ static void ADIOI_W_Exchange_data_alltoallv(ADIO_File fd, const void *buf, char 
                                             int *done_to_proc, int *hole,       /* 4 */
                                             int iter, MPI_Aint buftype_extent, MPI_Aint * buf_idx,
                                             int *error_code);
-static void ADIOI_Fill_send_buffer(ADIO_File fd, const void *buf, ADIOI_Flatlist_node
+static void ADIOI_GPFS_Fill_send_buffer(ADIO_File fd, const void *buf, ADIOI_Flatlist_node
                                    * flat_buf, char **send_buf, ADIO_Offset
                                    * offset_list, ADIO_Offset * len_list, int *send_size,
                                    MPI_Request * requests, int *sent_to_proc,
@@ -705,12 +705,12 @@ static void ADIOI_Exch_and_write(ADIO_File fd, const void *buf, MPI_Datatype
 
     sent_to_proc = (int *) ADIOI_Calloc(nprocs, sizeof(int));
     /* amount of data sent to each proc so far. Used in
-     * ADIOI_Fill_send_buffer. initialized to 0 here. */
+     * ADIOI_GPFS_Fill_send_buffer. initialized to 0 here. */
 
     send_buf_idx = (int *) ADIOI_Malloc(nprocs * 3 * sizeof(int));
     curr_to_proc = send_buf_idx + nprocs;
     done_to_proc = curr_to_proc + nprocs;
-    /* Above three are used in ADIOI_Fill_send_buffer */
+    /* Above three are used in ADIOI_GPFS_Fill_send_buffer */
 
     start_pos = (int *) ADIOI_Malloc(nprocs * sizeof(int));
     /* used to store the starting value of curr_offlen_ptr[i] in
@@ -1143,14 +1143,14 @@ static void ADIOI_W_Exchange_data(ADIO_File fd, const void *buf, char *write_buf
         for (i = 1; i < nprocs; i++)
             send_buf[i] = send_buf[i - 1] + send_size[i - 1];
 
-        ADIOI_Fill_send_buffer(fd, buf, flat_buf, send_buf,
+        ADIOI_GPFS_Fill_send_buffer(fd, buf, flat_buf, send_buf,
                                offset_list, len_list, send_size,
                                send_req,
                                sent_to_proc, nprocs, myrank,
                                contig_access_count,
                                min_st_offset, fd_size, fd_start, fd_end,
                                send_buf_idx, curr_to_proc, done_to_proc, iter, buftype_extent);
-        /* the send is done in ADIOI_Fill_send_buffer */
+        /* the send is done in ADIOI_GPFS_Fill_send_buffer */
     }
 
     if (fd->atomicity) {
@@ -1264,7 +1264,7 @@ static void ADIOI_W_Exchange_data(ADIO_File fd, const void *buf, char *write_buf
     ADIOI_BUF_INCR \
 }
 
-static void ADIOI_Fill_send_buffer(ADIO_File fd, const void *buf, ADIOI_Flatlist_node
+static void ADIOI_GPFS_Fill_send_buffer(ADIO_File fd, const void *buf, ADIOI_Flatlist_node
                                    * flat_buf, char **send_buf, ADIO_Offset
                                    * offset_list, ADIO_Offset * len_list, int *send_size,
                                    MPI_Request * requests, int *sent_to_proc,
