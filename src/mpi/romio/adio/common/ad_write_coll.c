@@ -25,18 +25,10 @@ static void ADIOI_W_Exchange_data(ADIO_File fd, void *buf, char *write_buf, ADIO
                                   int myrank, int buftype_is_contig, MPI_Count contig_access_count,
                                   ADIO_Offset min_st_offset, ADIO_Offset fd_size,
                                   ADIO_Offset * fd_start, ADIO_Offset * fd_end,
-                                  ADIOI_Access * others_req, MPI_Count * send_buf_idx,
-                                  MPI_Count * curr_to_proc, MPI_Count * done_to_proc, int *hole,
-                                  int iter, MPI_Aint buftype_extent, MPI_Aint * buf_idx,
-                                  int *error_code);
-void ADIOI_Fill_send_buffer(ADIO_File fd, void *buf, ADIOI_Flatlist_node * flat_buf,
-                            char **send_buf, ADIO_Offset * offset_list, ADIO_Offset * len_list,
-                            MPI_Count * send_size, MPI_Request * requests, MPI_Count * sent_to_proc,
-                            int nprocs, int myrank, MPI_Count contig_access_count,
-                            ADIO_Offset min_st_offset, ADIO_Offset fd_size, ADIO_Offset * fd_start,
-                            ADIO_Offset * fd_end, MPI_Count * send_buf_idx,
-                            MPI_Count * curr_to_proc, MPI_Count * done_to_proc, int iter,
-                            MPI_Aint buftype_extent);
+                                  ADIOI_Access * others_req,
+                                  MPI_Count *send_buf_idx, MPI_Count *curr_to_proc,
+                                  MPI_Count *done_to_proc, int *hole, int iter,
+                                  MPI_Aint buftype_extent, MPI_Aint * buf_idx, int *error_code);
 
 void ADIOI_GEN_WriteStridedColl(ADIO_File fd, const void *buf, MPI_Aint count,
                                 MPI_Datatype datatype, int file_ptr_type,
