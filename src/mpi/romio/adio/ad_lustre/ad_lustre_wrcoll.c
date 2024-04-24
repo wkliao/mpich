@@ -30,8 +30,9 @@ if (fd->hints->fs_hints.lustre.lock_ahead_write) {                           \
 
 /* prototypes of functions used for collective writes only. */
 static void ADIOI_LUSTRE_Exch_and_write(ADIO_File fd, const void *buf,
-                                        MPI_Datatype buftype, int nprocs,
-                                        int myrank,
+                                        MPI_Datatype buftype,
+                                        ADIOI_Flatlist_node *flat_buf,
+                                        int nprocs, int myrank,
                                         ADIOI_Access *others_req,
                                         ADIOI_Access *my_req,
                                         ADIO_Offset *offset_list,
@@ -60,7 +61,7 @@ static void ADIOI_LUSTRE_W_Exchange_data(ADIO_File fd, const void *buf,
                                          int size, int *count,
                                          int *start_pos,
                                          int *sent_to_proc, int nprocs,
-                                         int myrank, int buftype_is_contig,
+                                         int myrank,
                                          int contig_access_count,
                                          int *striping_info,
                                          ADIOI_Access *others_req,
@@ -103,7 +104,7 @@ void ADIOI_LUSTRE_WriteStridedColl(ADIO_File fd, const void *buf, MPI_Aint count
     /* array of nprocs access structures, one for each other process
      * whose request is written by this process. */
 
-    int i, filetype_is_contig, nprocs, myrank, do_collect = 0;
+    int i, nprocs, myrank, do_collect = 0;
     int contig_access_count = 0, buftype_is_contig, interleave_count = 0;
     int *count_my_req_per_proc, count_my_req_procs;
     int *count_others_req_per_proc, count_others_req_procs;
@@ -114,6 +115,7 @@ void ADIOI_LUSTRE_WriteStridedColl(ADIO_File fd, const void *buf, MPI_Aint count
     ADIO_Offset **buf_idx = NULL;
     int old_error, tmp_error;
     ADIO_Offset *lustre_offsets0, *lustre_offsets, *count_sizes = NULL;
+    ADIOI_Flatlist_node *flat_buf;
 
     MPI_Comm_size(fd->comm, &nprocs);
     MPI_Comm_rank(fd->comm, &myrank);
@@ -211,11 +213,18 @@ void ADIOI_LUSTRE_WriteStridedColl(ADIO_File fd, const void *buf, MPI_Aint count
             do_collect = ADIOI_LUSTRE_Docollect(fd, contig_access_count, len_list, nprocs);
         }
     }
-    ADIOI_Datatype_iscontig(buftype, &buftype_is_contig);
+
+    flat_buf = ADIOI_Flatten_and_find(buftype);
+    if (flat_buf->count == 1) /* actually contiguous */
+        buftype_is_contig = 1;
+    else
+        buftype_is_contig = 0;
 
     /* Decide if collective I/O should be done */
     if ((!do_collect && fd->hints->cb_write == ADIOI_HINT_AUTO) ||
         fd->hints->cb_write == ADIOI_HINT_DISABLE) {
+        int filetype_is_contig;
+        ADIOI_Flatlist_node *flat_ftype;
 
         /* use independent accesses */
         if (fd->hints->cb_write != ADIOI_HINT_DISABLE) {
@@ -226,7 +235,12 @@ void ADIOI_LUSTRE_WriteStridedColl(ADIO_File fd, const void *buf, MPI_Aint count
         }
 
         fd->fp_ind = orig_fp;
-        ADIOI_Datatype_iscontig(fd->filetype, &filetype_is_contig);
+        flat_ftype = ADIOI_Flatten_and_find(fd->filetype);
+        if (flat_ftype->count == 1) /* actually contiguous */
+            filetype_is_contig = 1;
+        else
+            filetype_is_contig = 0;
+
         if (buftype_is_contig && filetype_is_contig) {
             if (file_ptr_type == ADIO_EXPLICIT_OFFSET) {
                 off = fd->disp + (ADIO_Offset) (fd->etype_size) * offset;
@@ -300,7 +314,7 @@ void ADIOI_LUSTRE_WriteStridedColl(ADIO_File fd, const void *buf, MPI_Aint count
                           &count_others_req_per_proc, &others_req);
 
     /* exchange data and write in sizes of no more than stripe_size. */
-    ADIOI_LUSTRE_Exch_and_write(fd, buf, buftype, nprocs, myrank,
+    ADIOI_LUSTRE_Exch_and_write(fd, buf, buftype, flat_buf, nprocs, myrank,
                                 others_req, my_req, offset_list, len_list,
                                 contig_access_count, striping_info, buf_idx, error_code);
 
@@ -365,8 +379,8 @@ void ADIOI_LUSTRE_WriteStridedColl(ADIO_File fd, const void *buf, MPI_Aint count
  * code is created and returned in error_code.
  */
 static void ADIOI_LUSTRE_Exch_and_write(ADIO_File fd, const void *buf,
-                                        MPI_Datatype buftype, int nprocs,
-                                        int myrank, ADIOI_Access *others_req,
+                                        MPI_Datatype buftype, ADIOI_Flatlist_node *flat_buf,
+                                        int nprocs, int myrank, ADIOI_Access *others_req,
                                         ADIOI_Access *my_req,
                                         ADIO_Offset *offset_list,
                                         ADIO_Offset *len_list,
@@ -383,7 +397,7 @@ static void ADIOI_LUSTRE_Exch_and_write(ADIO_File fd, const void *buf,
      * at least another 8Mbytes of temp space is unacceptable.
      */
 
-    int hole, i, j, m, flag, ntimes = 1, max_ntimes, buftype_is_contig;
+    int hole, i, j, m, flag, ntimes = 1, max_ntimes;
     ADIO_Offset st_loc = -1, end_loc = -1, min_st_loc, max_end_loc;
     ADIO_Offset off, req_off, send_off, iter_st_off, *off_list;
     ADIO_Offset max_size, step_size = 0;
@@ -395,7 +409,6 @@ static void ADIOI_LUSTRE_Exch_and_write(ADIO_File fd, const void *buf,
     ADIO_Offset *send_buf_idx, *this_buf_idx;
     char *write_buf = NULL;
     MPI_Status status;
-    ADIOI_Flatlist_node *flat_buf = NULL;
     MPI_Aint lb, buftype_extent;
     int stripe_size = striping_info[0], avail_cb_nodes = striping_info[2];
     int data_sieving = 0;
@@ -492,10 +505,8 @@ static void ADIOI_LUSTRE_Exch_and_write(ADIO_File fd, const void *buf,
     /* used to store the starting value of recv_curr_offlen_ptr[i] in
      * this iteration */
 
-    ADIOI_Datatype_iscontig(buftype, &buftype_is_contig);
-    if (!buftype_is_contig) {
-        flat_buf = ADIOI_Flatten_and_find(buftype);
-    }
+    flat_buf = ADIOI_Flatten_and_find(buftype);
+
     MPI_Type_get_extent(buftype, &lb, &buftype_extent);
     /* I need to check if there are any outstanding nonblocking writes to
      * the file, which could potentially interfere with the writes taking
@@ -591,7 +602,7 @@ static void ADIOI_LUSTRE_Exch_and_write(ADIO_File fd, const void *buf,
                                      len_list, send_size, recv_size, off, real_size,
                                      recv_count, recv_start_pos,
                                      sent_to_proc, nprocs, myrank,
-                                     buftype_is_contig, contig_access_count,
+                                     contig_access_count,
                                      striping_info, others_req, send_buf_idx,
                                      curr_to_proc, done_to_proc, &hole, m,
                                      buftype_extent, this_buf_idx,
@@ -684,7 +695,7 @@ static void ADIOI_LUSTRE_W_Exchange_data(ADIO_File fd, const void *buf,
                                          int size, int *count,
                                          int *start_pos,
                                          int *sent_to_proc, int nprocs,
-                                         int myrank, int buftype_is_contig,
+                                         int myrank,
                                          int contig_access_count,
                                          int *striping_info,
                                          ADIOI_Access *others_req,
@@ -818,7 +829,7 @@ static void ADIOI_LUSTRE_W_Exchange_data(ADIO_File fd, const void *buf,
      * if buftype_is_contig, data can be directly sent from
      * user buf at location given by buf_idx. else use send_buf.
      */
-    if (buftype_is_contig) {
+    if (flat_buf->count == 1) {
         j = 0;
         for (i = 0; i < nprocs; i++)
             if (send_size[i]) {
@@ -895,7 +906,7 @@ static void ADIOI_LUSTRE_W_Exchange_data(ADIO_File fd, const void *buf,
     ADIOI_Free(statuses);
 #endif
     ADIOI_Free(requests);
-    if (!buftype_is_contig && nprocs_send) {
+    if (send_buf != NULL) {
         ADIOI_Free(send_buf[0]);
         ADIOI_Free(send_buf);
     }
@@ -1310,9 +1321,8 @@ static void ADIOI_LUSTRE_IterateOneSided(ADIO_File fd, const void *buf, int *str
              * internally, therefore no external buffer offset.  Care was taken to minimize
              * ADIOI_OneSidedWriteAggregation changes at the expense of some added complexity to the caller.
              */
-            int bufTypeIsContig;
-            ADIOI_Datatype_iscontig(buftype, &bufTypeIsContig);
-            if (bufTypeIsContig) {
+            ADIOI_Flatlist_node *flat_buf = ADIOI_Flatten_and_find(buftype);
+            if (flat_buf->count == 1) { /* buftype is contiguous */
                 ADIOI_OneSidedWriteAggregation(fd,
                                                (ADIO_Offset *) &
                                                (offset_list[startingOffsetListIndex]),
