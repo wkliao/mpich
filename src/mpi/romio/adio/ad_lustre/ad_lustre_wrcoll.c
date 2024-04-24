@@ -30,7 +30,7 @@ if (fd->hints->fs_hints.lustre.lock_ahead_write) {                           \
 
 /* prototypes of functions used for collective writes only. */
 static void ADIOI_LUSTRE_Exch_and_write(ADIO_File fd, const void *buf,
-                                        MPI_Datatype datatype, int nprocs,
+                                        MPI_Datatype buftype, int nprocs,
                                         int myrank,
                                         ADIOI_Access * others_req,
                                         ADIOI_Access * my_req,
@@ -72,10 +72,10 @@ static void ADIOI_LUSTRE_IterateOneSided(ADIO_File fd, const void *buf, int *str
                                          int file_ptr_type, ADIO_Offset offset,
                                          ADIO_Offset start_offset, ADIO_Offset end_offset,
                                          ADIO_Offset firstFileOffset, ADIO_Offset lastFileOffset,
-                                         MPI_Datatype datatype, int myrank, int *error_code);
+                                         MPI_Datatype buftype, int myrank, int *error_code);
 
 void ADIOI_LUSTRE_WriteStridedColl(ADIO_File fd, const void *buf, MPI_Aint count,
-                                   MPI_Datatype datatype,
+                                   MPI_Datatype buftype,
                                    int file_ptr_type, ADIO_Offset offset,
                                    ADIO_Status * status, int *error_code)
 {
@@ -119,7 +119,7 @@ void ADIOI_LUSTRE_WriteStridedColl(ADIO_File fd, const void *buf, MPI_Aint count
          * Note: end_offset points to the last byte-offset to be accessed.
          * e.g., if start_offset=0 and 100 bytes to be read, end_offset=99
          */
-        ADIOI_Calc_my_off_len(fd, count, datatype, file_ptr_type, offset,
+        ADIOI_Calc_my_off_len(fd, count, buftype, file_ptr_type, offset,
                               &offset_list, &len_list, &start_offset,
                               &end_offset, &contig_access_count);
 
@@ -137,7 +137,7 @@ void ADIOI_LUSTRE_WriteStridedColl(ADIO_File fd, const void *buf, MPI_Aint count
         if ((fd->romio_write_aggmethod == 1) || (fd->romio_write_aggmethod == 2)) {
             count_sizes = (ADIO_Offset *) ADIOI_Malloc(nprocs * sizeof(ADIO_Offset));
             MPI_Count buftype_size;
-            MPI_Type_size_x(datatype, &buftype_size);
+            MPI_Type_size_x(buftype, &buftype_size);
             my_count_size = (ADIO_Offset) count *(ADIO_Offset) buftype_size;
         }
         if (fd->romio_tunegather) {
@@ -203,7 +203,7 @@ void ADIOI_LUSTRE_WriteStridedColl(ADIO_File fd, const void *buf, MPI_Aint count
             do_collect = ADIOI_LUSTRE_Docollect(fd, contig_access_count, len_list, nprocs);
         }
     }
-    ADIOI_Datatype_iscontig(datatype, &buftype_is_contig);
+    ADIOI_Datatype_iscontig(buftype, &buftype_is_contig);
 
     /* Decide if collective I/O should be done */
     if ((!do_collect && fd->hints->cb_write == ADIOI_HINT_AUTO) ||
@@ -222,12 +222,12 @@ void ADIOI_LUSTRE_WriteStridedColl(ADIO_File fd, const void *buf, MPI_Aint count
         if (buftype_is_contig && filetype_is_contig) {
             if (file_ptr_type == ADIO_EXPLICIT_OFFSET) {
                 off = fd->disp + (ADIO_Offset) (fd->etype_size) * offset;
-                ADIO_WriteContig(fd, buf, count, datatype,
+                ADIO_WriteContig(fd, buf, count, buftype,
                                  ADIO_EXPLICIT_OFFSET, off, status, error_code);
             } else
-                ADIO_WriteContig(fd, buf, count, datatype, ADIO_INDIVIDUAL, 0, status, error_code);
+                ADIO_WriteContig(fd, buf, count, buftype, ADIO_INDIVIDUAL, 0, status, error_code);
         } else {
-            ADIO_WriteStrided(fd, buf, count, datatype, file_ptr_type, offset, status, error_code);
+            ADIO_WriteStrided(fd, buf, count, buftype, file_ptr_type, offset, status, error_code);
         }
         return;
     }
@@ -264,7 +264,7 @@ void ADIOI_LUSTRE_WriteStridedColl(ADIO_File fd, const void *buf, MPI_Aint count
         ADIOI_LUSTRE_IterateOneSided(fd, buf, striping_info, offset_list, len_list,
                                      contig_access_count, currentValidDataIndex, count,
                                      file_ptr_type, offset, start_offset, end_offset,
-                                     firstFileOffset, lastFileOffset, datatype, myrank, error_code);
+                                     firstFileOffset, lastFileOffset, buftype, myrank, error_code);
 
         ADIOI_Free(offset_list);
         ADIOI_Free(st_offsets);
@@ -292,7 +292,7 @@ void ADIOI_LUSTRE_WriteStridedColl(ADIO_File fd, const void *buf, MPI_Aint count
                           &count_others_req_per_proc, &others_req);
 
     /* exchange data and write in sizes of no more than stripe_size. */
-    ADIOI_LUSTRE_Exch_and_write(fd, buf, datatype, nprocs, myrank,
+    ADIOI_LUSTRE_Exch_and_write(fd, buf, buftype, nprocs, myrank,
                                 others_req, my_req, offset_list, len_list,
                                 contig_access_count, striping_info, buf_idx, error_code);
 
@@ -341,9 +341,9 @@ void ADIOI_LUSTRE_WriteStridedColl(ADIO_File fd, const void *buf, MPI_Aint count
     if (status) {
         MPI_Count bufsize, size;
         /* Don't set status if it isn't needed */
-        MPI_Type_size_x(datatype, &size);
+        MPI_Type_size_x(buftype, &size);
         bufsize = size * count;
-        MPIR_Status_set_bytes(status, datatype, bufsize);
+        MPIR_Status_set_bytes(status, buftype, bufsize);
     }
     /* This is a temporary way of filling in status. The right way is to
      * keep track of how much data was actually written during collective I/O.
@@ -357,7 +357,7 @@ void ADIOI_LUSTRE_WriteStridedColl(ADIO_File fd, const void *buf, MPI_Aint count
  * code is created and returned in error_code.
  */
 static void ADIOI_LUSTRE_Exch_and_write(ADIO_File fd, const void *buf,
-                                        MPI_Datatype datatype, int nprocs,
+                                        MPI_Datatype buftype, int nprocs,
                                         int myrank, ADIOI_Access * others_req,
                                         ADIOI_Access * my_req,
                                         ADIO_Offset * offset_list,
@@ -485,11 +485,11 @@ static void ADIOI_LUSTRE_Exch_and_write(ADIO_File fd, const void *buf,
     /* used to store the starting value of recv_curr_offlen_ptr[i] in
      * this iteration */
 
-    ADIOI_Datatype_iscontig(datatype, &buftype_is_contig);
+    ADIOI_Datatype_iscontig(buftype, &buftype_is_contig);
     if (!buftype_is_contig) {
-        flat_buf = ADIOI_Flatten_and_find(datatype);
+        flat_buf = ADIOI_Flatten_and_find(buftype);
     }
-    MPI_Type_get_extent(datatype, &lb, &buftype_extent);
+    MPI_Type_get_extent(buftype, &lb, &buftype_extent);
     /* I need to check if there are any outstanding nonblocking writes to
      * the file, which could potentially interfere with the writes taking
      * place in this collective write call. Since this is not likely to be
@@ -1044,7 +1044,7 @@ static void ADIOI_LUSTRE_IterateOneSided(ADIO_File fd, const void *buf, int *str
                                          int file_ptr_type, ADIO_Offset offset,
                                          ADIO_Offset start_offset, ADIO_Offset end_offset,
                                          ADIO_Offset firstFileOffset, ADIO_Offset lastFileOffset,
-                                         MPI_Datatype datatype, int myrank, int *error_code)
+                                         MPI_Datatype buftype, int myrank, int *error_code)
 {
     int i;
     int stripesPerAgg = fd->hints->cb_buffer_size / striping_info[0];
@@ -1298,13 +1298,13 @@ static void ADIOI_LUSTRE_IterateOneSided(ADIO_File fd, const void *buf, int *str
              * ADIOI_OneSidedWriteAggregation changes at the expense of some added complexity to the caller.
              */
             int bufTypeIsContig;
-            ADIOI_Datatype_iscontig(datatype, &bufTypeIsContig);
+            ADIOI_Datatype_iscontig(buftype, &bufTypeIsContig);
             if (bufTypeIsContig) {
                 ADIOI_OneSidedWriteAggregation(fd,
                                                &(offset_list[startingOffsetListIndex]),
                                                &(len_list[startingOffsetListIndex]),
                                                segmentContigAccessCount,
-                                               buf + totalDataWrittenLastRound, datatype,
+                                               buf + totalDataWrittenLastRound, buftype,
                                                error_code, segmentFirstFileOffset,
                                                segmentLastFileOffset, currentValidDataIndex,
                                                segment_stripe_start, segment_stripe_end,
@@ -1313,7 +1313,7 @@ static void ADIOI_LUSTRE_IterateOneSided(ADIO_File fd, const void *buf, int *str
                 ADIOI_OneSidedWriteAggregation(fd,
                                                &(offset_list[startingOffsetListIndex]),
                                                &(len_list[startingOffsetListIndex]),
-                                               segmentContigAccessCount, buf, datatype, error_code,
+                                               segmentContigAccessCount, buf, buftype, error_code,
                                                segmentFirstFileOffset, segmentLastFileOffset,
                                                currentValidDataIndex, segment_stripe_start,
                                                segment_stripe_end, &holeFoundThisRound,
@@ -1363,7 +1363,7 @@ static void ADIOI_LUSTRE_IterateOneSided(ADIO_File fd, const void *buf, int *str
 
             if (anyHolesFound) {
                 ADIOI_Free(offset_list);
-                ADIOI_Calc_my_off_len(fd, count, datatype, file_ptr_type, offset,
+                ADIOI_Calc_my_off_len(fd, count, buftype, file_ptr_type, offset,
                                       &offset_list, &len_list, &start_offset,
                                       &end_offset, &contig_access_count);
 
