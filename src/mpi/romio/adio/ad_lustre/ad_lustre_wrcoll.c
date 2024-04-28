@@ -50,7 +50,8 @@ typedef struct {
 } disp_len_list;
 
 /* prototypes of functions used for collective writes only. */
-static void ADIOI_LUSTRE_Exch_and_write(ADIO_File fd, const void *buf,
+static void ADIOI_LUSTRE_Exch_and_write(ADIO_File fd,
+                                        const void *buf,
                                         MPI_Datatype buftype,
                                         ADIOI_Flatlist_node *flat_buf,
                                         ADIOI_Access *others_req,
@@ -103,22 +104,34 @@ static void ADIOI_LUSTRE_IterateOneSided(ADIO_File fd, const void *buf,
                                          ADIO_Offset firstFileOffset, ADIO_Offset lastFileOffset,
                                          MPI_Datatype buftype, int myrank, int *error_code);
 
-/* ADIOI_LUSTRE_Calc_my_req() - calculate what portions of the access requests
- * of this process are located in the file domains of I/O aggregators.
+/* ADIOI_LUSTRE_Calc_my_req() - calculates what portions of the read/write
+ * requests of this process fall into the file domains of all I/O aggregators.
+ *   IN: buftype_is_contig: whether buffer datatype is contiguous
+ *   IN: contig_access_count: Number of noncontiguous requests of this rank.
+ *   IN: offset_list[contig_access_count] file offsets of noncontiguous request.
+ *   IN: len_list[contig_access_count] lengths of noncontiguous request.
+ *   OUT: count_my_req_aggrs_ptr Number of aggregators whose file domains have
+ *        this rank's requests
+ *   OUT: count_my_req_per_aggr_ptr[cb_nodes] Number of noncontiguous requests
+ *        fall in into each aggregator
+ *   OUT: my_req_ptr[cb_nodes] offset-length pairs of this process's requests
+ *        fall into the file domain of each aggregator
+ *   OUT: buf_idx_ptr[cb_nodes] index pointing to the starting location in
+ *        user_buf for data to be sent to each aggregator.
  */
 static
 void ADIOI_LUSTRE_Calc_my_req(ADIO_File fd,
-                              ADIO_Offset *offset_list,
-                              ADIO_Offset *len_list,
+                              const ADIO_Offset *offset_list,
+                              const ADIO_Offset *len_list,
                               MPI_Count contig_access_count,
-                              int *count_my_req_procs_ptr,
-                              MPI_Count **count_my_req_per_proc_ptr,
+                              int *count_my_req_aggrs_ptr,
+                              MPI_Count **count_my_req_per_aggr_ptr,
                               ADIOI_Access **my_req_ptr,
                               int buftype_is_contig,
                               ADIO_Offset **buf_idx)
 {
-    int i, proc, *aggr_ranks, cb_nodes, count_my_req_procs;
-    MPI_Count l, *count_my_req_per_proc;
+    int aggr, *aggr_ranks, cb_nodes, count_my_req_aggrs;
+    MPI_Count i, l, *count_my_req_per_aggr;
     size_t nelems;
     ADIO_Offset avail_len, rem_len, curr_idx, off, *ptr;
     ADIO_Offset *avail_lens;
@@ -126,14 +139,14 @@ void ADIOI_LUSTRE_Calc_my_req(ADIO_File fd,
 
     cb_nodes = fd->hints->cb_nodes;
 
-    *count_my_req_per_proc_ptr = (MPI_Count *) ADIOI_Calloc(cb_nodes, sizeof(MPI_Count));
-    count_my_req_per_proc = *count_my_req_per_proc_ptr;
-    /* count_my_req_per_proc[i] gives the number of contiguous requests of this
-     * process that fall in aggregator i's file domain.
+    /* count_my_req_per_aggr[i] gives the number of contiguous requests of this
+     * process that fall in aggregator i's file domain (not process MPI rank i).
      */
+    *count_my_req_per_aggr_ptr = (MPI_Count *) ADIOI_Calloc(cb_nodes, sizeof(MPI_Count));
+    count_my_req_per_aggr = *count_my_req_per_aggr_ptr;
 
-    /* First pass just to calculate how much space to allocate for my_req.
-     * contig_access_count has been calculated way back in
+    /* First pass is just to calculate how much space is needed to allocate
+     * my_req. Note that contig_access_count has been calculated way back in
      * ADIOI_Calc_my_off_len()
      */
     aggr_ranks = (int *) ADIOI_Malloc(contig_access_count * sizeof(int));
@@ -142,52 +155,55 @@ void ADIOI_LUSTRE_Calc_my_req(ADIO_File fd,
     /* nelems will be the number of offset-length pairs for my_req[] */
     nelems = 0;
     for (i = 0; i < contig_access_count; i++) {
-        /* short circuit offset/len processing if len == 0
-         * (zero-byte  read/write
-         */
         /* short circuit offset/len processing if zero-byte read/write. */
         if (len_list[i] == 0)
             continue;
 
         off = offset_list[i];
         avail_len = len_list[i];
-        /* ADIOI_LUSTRE_Calc_aggregator() modifies the value of avail_len to
-         * return the amount that is only covered by the proc's file domain.
-         * The remaining will still need to determine to whose file domain it
-         * belongs. As ADIOI_LUSTRE_Calc_aggregator() can be expensive for
-         * large value of contig_access_count, keep a copy of the returned
-         * values proc and avail_len in aggr_ranks[] and avail_lens[] to be
-         * used in the next for loop.
+        /* ADIOI_LUSTRE_Calc_aggregator() modifies the value of 'avail_len' to
+         * the amount that is only covered by the aggr's file domain. The
+         * remaining (tail) will continue to be processed to determine to whose
+         * file domain it belongs. As ADIOI_LUSTRE_Calc_aggregator() can be
+         * expensive for large value of contig_access_count, we keep a copy of
+         * the returned values of 'aggr' and 'avail_len' in aggr_ranks[] and
+         * avail_lens[] to be used in the next for loop (not next iteration).
+         *
+         * Note the returned value in 'aggr' is the index to ranklist[], i.e.
+         * the 'aggr'th element of array ranklist[], rather than the
+         * aggregator's MPI rank ID in fd->comm.
          */
-        proc = ADIOI_LUSTRE_Calc_aggregator(fd, off, &avail_len);
-        aggr_ranks[i] = proc;
-        avail_lens[i] = avail_len;
-        count_my_req_per_proc[proc]++;
-        nelems++;
+        aggr = ADIOI_LUSTRE_Calc_aggregator(fd, off, &avail_len);
+        aggr_ranks[i] = aggr;          /* first aggregator ID of this request */
+        avail_lens[i] = avail_len;     /* length covered, may be < len_list[i] */
+        count_my_req_per_aggr[aggr]++; /* increment for aggregator aggr */
+        nelems++;                      /* true number of noncontiguous requests
+                                        * in terms of file domains */
 
-        /* rem_len is the amount of i's offset-length pair that is not covered
-         * by proc's file domain.
+        /* rem_len is the amount of ith offset-length pair that is not covered
+         * by aggregator aggr's file domain.
          */
         rem_len = len_list[i] - avail_len;
 
         while (rem_len != 0) {
-            off += avail_len;   /* point to first remaining byte */
-            avail_len = rem_len;        /* save remaining size, pass to calc */
-            proc = ADIOI_LUSTRE_Calc_aggregator(fd, off, &avail_len);
-            count_my_req_per_proc[proc]++;
+            off += avail_len;    /* move forward to first remaining byte */
+            avail_len = rem_len; /* save remaining size, pass to calc */
+            aggr = ADIOI_LUSTRE_Calc_aggregator(fd, off, &avail_len);
+            count_my_req_per_aggr[aggr]++;
             nelems++;
             rem_len -= avail_len;       /* reduce remaining length by amount from fd */
         }
     }
 
-    /* buf_idx is relevant only if buftype_is_contig.  buf_idx[i] gives the
-     * starting index in user_buf where data will be sent to proc 'i'. This
-     * allows sends to be done without extra buffer.
+    /* allocate space for buf_idx.
+     * buf_idx is relevant only if buftype is contiguous. buf_idx[i] gives the
+     * starting index in user_buf where data will be sent to aggregator 'i'.
+     * This allows sends to be done without extra buffer.
      */
     if (buf_idx != NULL && buftype_is_contig) {
         buf_idx[0] = (ADIO_Offset *) ADIOI_Malloc(nelems * sizeof(ADIO_Offset));
         for (i = 1; i < cb_nodes; i++)
-            buf_idx[i] = buf_idx[i - 1] + count_my_req_per_proc[i - 1];
+            buf_idx[i] = buf_idx[i - 1] + count_my_req_per_aggr[i - 1];
     }
 
     /* allocate space for my_req and its members offsets and lens */
@@ -195,18 +211,18 @@ void ADIOI_LUSTRE_Calc_my_req(ADIO_File fd,
     my_req = *my_req_ptr;
     my_req[0].offsets = (ADIO_Offset *) ADIOI_Malloc(nelems * 2 * sizeof(ADIO_Offset));
 
-    /* count_my_req_procs is the number of aggregators whose file domains have
+    /* count_my_req_aggrs is the number of aggregators whose file domains have
      * this rank's write requests
      */
-    count_my_req_procs = 0;
+    count_my_req_aggrs = 0;
     ptr = my_req[0].offsets;
     for (i = 0; i < cb_nodes; i++) {
-        if (count_my_req_per_proc[i]) {
+        if (count_my_req_per_aggr[i]) {
             my_req[i].offsets = ptr;
-            ptr += count_my_req_per_proc[i];
+            ptr += count_my_req_per_aggr[i];
             my_req[i].lens = ptr;
-            ptr += count_my_req_per_proc[i];
-            count_my_req_procs++;
+            ptr += count_my_req_per_aggr[i];
+            count_my_req_aggrs++;
         }
         my_req[i].count = 0;    /* will be incremented where needed later */
     }
@@ -219,41 +235,42 @@ void ADIOI_LUSTRE_Calc_my_req(ADIO_File fd,
             continue;
 
         off = offset_list[i];
-        proc = aggr_ranks[i];
+        aggr = aggr_ranks[i];
         avail_len = avail_lens[i];
 
-        l = my_req[proc].count;
-        ADIOI_Assert(l < count_my_req_per_proc[proc]);
+        l = my_req[aggr].count;
+        ADIOI_Assert(l < count_my_req_per_aggr[aggr]);
         if (buf_idx != NULL && buftype_is_contig) {
-            buf_idx[proc][l] = curr_idx;
+            buf_idx[aggr][l] = curr_idx;
             curr_idx += avail_len;
         }
         rem_len = len_list[i] - avail_len;
 
         /* Each my_req[i] contains the number of this process's noncontiguous
-         * requests that fall into process i's file domain. my_req[i].offsets[]
-         * and my_req[i].lens store the offsets and lengths of the requests.
+         * requests that fall into aggregator aggr's file domain.
+         * my_req[aggr].offsets[] and my_req[aggr].lens store the offsets and
+         * lengths of the requests.
          */
-        my_req[proc].offsets[l] = off;
-        my_req[proc].lens[l] = avail_len;
-        my_req[proc].count++;
+        my_req[aggr].offsets[l] = off;
+        my_req[aggr].lens[l] = avail_len;
+        my_req[aggr].count++;
 
         while (rem_len != 0) {
             off += avail_len;
             avail_len = rem_len;
-            proc = ADIOI_LUSTRE_Calc_aggregator(fd, off, &avail_len);
+            aggr = ADIOI_LUSTRE_Calc_aggregator(fd, off, &avail_len);
 
-            l = my_req[proc].count;
-            ADIOI_Assert(l < count_my_req_per_proc[proc]);
+            l = my_req[aggr].count;
+            ADIOI_Assert(l < count_my_req_per_aggr[aggr]);
             if (buf_idx != NULL && buftype_is_contig) {
-                buf_idx[proc][l] = curr_idx;
+                buf_idx[aggr][l] = curr_idx;
                 curr_idx += avail_len;
             }
             rem_len -= avail_len;
 
-            my_req[proc].offsets[l] = off;
-            my_req[proc].lens[l] = avail_len;
-            my_req[proc].count++;
+            my_req[aggr].offsets[l] = off;
+            my_req[aggr].lens[l] = avail_len;
+            my_req[aggr].count++;
         }
     }
     ADIOI_Free(aggr_ranks);
@@ -261,7 +278,7 @@ void ADIOI_LUSTRE_Calc_my_req(ADIO_File fd,
 
 #ifdef AGG_DEBUG
     for (i = 0; i < cb_nodes; i++) {
-        if (count_my_req_per_proc[i] > 0) {
+        if (count_my_req_per_aggr[i] > 0) {
             FPRINTF(stdout, "data needed from %d (count = %d):\n", i, my_req[i].count);
             for (l = 0; l < my_req[i].count; l++) {
                 FPRINTF(stdout, "   off[%d] = %lld, len[%d] = %d\n",
@@ -271,31 +288,38 @@ void ADIOI_LUSTRE_Calc_my_req(ADIO_File fd,
     }
 #endif
 
-    *count_my_req_procs_ptr = count_my_req_procs;
+    *count_my_req_aggrs_ptr = count_my_req_aggrs;
 }
 
+/* ADIOI_LUSTRE_Calc_others_req() calculates what requests of other processes
+ * lie in this aggregator's file domain.
+ *
+ *   IN: count_my_req_aggr: number of aggregators whose file domains have this
+ *       rank's requests
+ *   IN: count_my_req_per_aggr[cb_nodes]: number of noncontiguous requests of
+ *       this rank fall into each aggregator
+ *   IN: my_req[cb_nodes]: offset-length pairs of this rank's requests fall into
+ *       each aggregator
+ *   OUT: count_others_req_procs: number of processes whose requests fall into this
+ *       aggregator's file domain (including this rank itself)
+ *   OUT: count_others_req_per_proc[i]: number of noncontiguous requests of rank i
+ *        that falls in this rank's file domain.
+ *   OUT: others_req_ptr[nprocs]: requests of all other ranks fall into this
+ *        aggregator's file domain.
+ */
 static
 void ADIOI_LUSTRE_Calc_others_req(ADIO_File fd,
                                   int count_my_req_aggr,
-                                  MPI_Count *count_my_req_per_aggr,
-                                  ADIOI_Access *my_req,
+                                  const MPI_Count *count_my_req_per_aggr,
+                                  const ADIOI_Access *my_req,
                                   int nprocs,
                                   int myrank,
                                   int *count_others_req_procs_ptr,
                                   MPI_Count **count_others_req_per_proc_ptr,
                                   ADIOI_Access **others_req_ptr)
 {
-    /* determine what requests of other processes lie in this process's file
-     * domain.
-     *
-     * count_others_req_procs = number of processes whose requests lie in this
-     * process's file domain (including this process itself)
-     * count_others_req_per_proc[i] indicates how many separate contiguous
-     * requests of proc. i lie in this process's file domain.
-     */
-
-    int i, j, count_others_req_procs;
-    MPI_Count *count_my_req_per_proc, *count_others_req_per_proc;
+    int i, j;
+    MPI_Count *count_my_req_per_proc, *count_others_req_per_proc, count_others_req_procs;
     MPI_Request *requests;
     ADIOI_Access *others_req;
     size_t memLen;
@@ -306,12 +330,15 @@ void ADIOI_LUSTRE_Calc_others_req(ADIO_File fd,
 #ifdef AGGREGATION_PROFILE
     MPE_Log_event(5026, 0, NULL);
 #endif
+
+    /* count_others_req_per_proc[i] is the number of contiguous requests
+     * from rank i that falls in this rank's file domain.
+     */
     count_others_req_per_proc = (MPI_Count *) ADIOI_Malloc(nprocs * sizeof(MPI_Count));
 
-    /* count_my_req_per_aggr[i]: the number of contiguous requests of this
+    /* Use count_my_req_per_aggr[] to set count_others_req_per_proc[].
+     * count_my_req_per_aggr[i] is the number of contiguous requests of this
      * process that fall in aggregator i's file domain.
-     * count_others_req_per_proc[i] indicates how many noncontiguous requests
-     * from process i that fall into this process's file domain.
      */
     count_my_req_per_proc = (MPI_Count*) ADIOI_Calloc(nprocs, sizeof(MPI_Count));
     for (i=0; i<fd->hints->cb_nodes; i++)
@@ -427,10 +454,10 @@ void ADIOI_LUSTRE_WriteStridedColl(ADIO_File fd, const void *buf, MPI_Aint count
         ADIO_Offset st_end[2], *st_end_all = NULL;
 
         /* Calculate and construct the list of starting file offsets and
-         * lengths of write requests of this process into offset_list and
-         * len_list, respectively. No inter-process communication is needed.
-         * The number of elements in both offset_list[] and len_list[] is
-         * contig_access_count.
+         * lengths of write requests of this process into offset_list[] and
+         * len_list[], respectively. The number of elements in both
+         * offset_list[] and len_list[] is contig_access_count. No
+         * inter-process communication is needed.
          *
          * From start_offset to end_offset is this process's aggregate access
          * file region. Note: end_offset points to the last byte-offset to be
@@ -578,7 +605,7 @@ void ADIOI_LUSTRE_WriteStridedColl(ADIO_File fd, const void *buf, MPI_Aint count
                                  &count_my_req_aggr, &count_my_req_per_aggr,
                                  &my_req, buftype_is_contig, buf_idx);
 
-        /* Calculate the portions of all other process's requests fall into
+        /* Calculate the portions of all other ranks' requests fall into
          * this process's file domain (note only I/O aggregators are assigned
          * file domains). Inter-process communication is required to construct
          * others_req[], including MPI_Alltoall, MPI_Issend, MPI_Irecv, and
@@ -1626,11 +1653,32 @@ static void ADIOI_LUSTRE_Fill_send_buffer(ADIO_File fd,
     n_buftypes = 0;
     flat_buf_sz = flat_buf->blocklens[0];
 
-    /* flat_buf_idx: current index into flattened buftype
-     * flat_buf_sz: size of current contiguous component in flattened buf
-     * contig_access_count: the number of contiguous file segments this
-     *     rank writes to. Each segment is described by offset_list[i] and
-     *     len_list[i].
+    /* user_buf_idx is to the index offset to buf, indicating the starting
+     * location to be copied.
+     *
+     * flat_buf stores the offset-length pairs of the flattened user buffer
+     *     data type. Note this stores offset-length pairs of the data type,
+     *     and write amount can be a multiple of the data type.
+     * n_buftypes stores the current number of data types being processed.
+     * flat_buf->count: the number of pairs
+     * flat_buf->indices[i]: the ith pair's byte offset to buf. Note the
+     *     flattened offsets of user buffer type may not be sorted in an
+     *     increasing order, unlike fileview which is required by MPI to be
+     *     sorted in a monotonically non-decreasing order.
+     * flat_buf->blocklens[i]: length of the ith pair
+     * flat_buf_idx: index to the offset-length pair currently being processed,
+     *     incremented each round.
+     * flat_buf_sz: amount of data in the pair that has not been copied over,
+     *     changed each round.
+     */
+
+    /* contig_access_count: the number of contiguous file segments this
+     *     rank writes to. Each segment ii is described by offset_list[ii] and
+     *     len_list[ii].
+     * fileview_indx: the index to the offset_list[], len_list[] that have been
+     *     processed in the previous round.
+     * For each contiguous off-len pair in this rank's file view, pack write
+     * data into send buffers, send_buf[].
      */
 
     /* for each contiguous off-len in this rank's file view, pack write data
