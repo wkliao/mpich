@@ -333,13 +333,11 @@ void ADIOI_LUSTRE_Calc_others_req(ADIO_File fd,
                                   int count_my_req_aggr,
                                   const int *count_my_req_per_aggr,
                                   const ADIOI_Access *my_req,
-                                  int nprocs,
-                                  int myrank,
                                   int *count_others_req_procs_ptr,
                                   int **count_others_req_per_proc_ptr,
                                   ADIOI_Access **others_req_ptr)
 {
-    int i, j, *count_my_req_per_proc;
+    int i, j, myrank, nprocs, *count_my_req_per_proc;
     int *count_others_req_per_proc, count_others_req_procs;
     MPI_Request *requests;
     ADIOI_Access *others_req;
@@ -351,6 +349,9 @@ void ADIOI_LUSTRE_Calc_others_req(ADIO_File fd,
 #ifdef AGGREGATION_PROFILE
     MPE_Log_event(5026, 0, NULL);
 #endif
+
+    MPI_Comm_size(fd->comm, &nprocs);
+    MPI_Comm_rank(fd->comm, &myrank);
 
     /* count_others_req_per_proc[i] is the number of contiguous requests
      * from rank i that falls in this rank's file domain.
@@ -691,8 +692,8 @@ void ADIOI_LUSTRE_WriteStridedColl(ADIO_File fd, const void *buf, MPI_Aint count
          * requests from process i that fall into this process's file domain.
          */
         ADIOI_LUSTRE_Calc_others_req(fd, count_my_req_aggr,
-                                     count_my_req_per_aggr, my_req, nprocs,
-                                     myrank, &count_others_req_procs,
+                                     count_my_req_per_aggr, my_req,
+                                     &count_others_req_procs,
                                      &count_others_req_per_proc, &others_req);
 
 #ifdef WKL_DEBUG
