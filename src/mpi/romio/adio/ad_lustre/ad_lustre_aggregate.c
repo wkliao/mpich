@@ -87,20 +87,20 @@ void ADIOI_LUSTRE_Get_striping_info(ADIO_File fd, int *striping_info, int mode)
     striping_info[2] = avail_cb_nodes;
 }
 
-int ADIOI_LUSTRE_Calc_aggregator(ADIO_File fd, ADIO_Offset off, ADIO_Offset * len, int stripe_size)
+int ADIOI_LUSTRE_Calc_aggregator(ADIO_File fd, ADIO_Offset off, ADIO_Offset *len)
 {
     ADIO_Offset avail_bytes, stripe_id;
 
-    stripe_id = off / stripe_size;
+    stripe_id = off / fd->hints->striping_unit;
 
-    avail_bytes = (stripe_id + 1) * stripe_size - off;
+    avail_bytes = (stripe_id + 1) * fd->hints->striping_unit - off;
     if (avail_bytes < *len) {
         /* The request [off, off+len) has only [off, off+avail_bytes) part
          * falling into aggregator's file domain */
         *len = avail_bytes;
     }
-    /* map index to cb_node's MPI rank */
-    return fd->hints->ranklist[stripe_id % fd->hints->cb_nodes];
+    /* return the index to ranklist[] */
+    return (stripe_id % fd->hints->cb_nodes);
 }
 
 int ADIOI_LUSTRE_Docollect(ADIO_File fd, MPI_Count contig_access_count,
