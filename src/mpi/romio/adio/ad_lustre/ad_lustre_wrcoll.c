@@ -243,6 +243,126 @@ void ADIOI_LUSTRE_Calc_my_req(ADIO_File fd, ADIO_Offset * offset_list,
     *buf_idx_ptr = buf_idx;
 }
 
+static
+void ADIOI_LUSTRE_Calc_others_req(ADIO_File fd,
+                                  int count_my_req_aggr,
+                                  int *count_my_req_per_aggr,
+                                  ADIOI_Access *my_req,
+                                  int nprocs,
+                                  int myrank,
+                                  int *count_others_req_procs_ptr,
+                                  int **count_others_req_per_proc_ptr,
+                                  ADIOI_Access **others_req_ptr)
+{
+    /* determine what requests of other processes lie in this process's file
+     * domain.
+     *
+     * count_others_req_procs = number of processes whose requests lie in this
+     * process's file domain (including this process itself)
+     * count_others_req_per_proc[i] indicates how many separate contiguous
+     * requests of proc. i lie in this process's file domain.
+     */
+
+    int i, j, *count_my_req_per_proc;
+    int *count_others_req_per_proc, count_others_req_procs;
+    MPI_Request *requests;
+    ADIOI_Access *others_req;
+    size_t memLen;
+    ADIO_Offset *ptr;
+    MPI_Aint *mem_ptrs;
+
+/* first find out how much to send/recv and from/to whom */
+#ifdef AGGREGATION_PROFILE
+    MPE_Log_event(5026, 0, NULL);
+#endif
+    count_others_req_per_proc = (int *) ADIOI_Malloc(nprocs * sizeof(int));
+
+    /* count_my_req_per_aggr[i]: the number of contiguous requests of this
+     * process that fall in aggregator i's file domain.
+     * count_others_req_per_proc[i] indicates how many noncontiguous requests
+     * from process i that fall into this process's file domain.
+     */
+    count_my_req_per_proc = (int*) ADIOI_Calloc(nprocs, sizeof(int));
+    for (i=0; i<fd->hints->cb_nodes; i++)
+        count_my_req_per_proc[fd->hints->ranklist[i]] = count_my_req_per_aggr[i];
+
+    MPI_Alltoall(count_my_req_per_proc, 1, MPI_INT,
+                 count_others_req_per_proc, 1, MPI_INT, fd->comm);
+    ADIOI_Free(count_my_req_per_proc);
+
+    *others_req_ptr = (ADIOI_Access *) ADIOI_Malloc(nprocs * sizeof(ADIOI_Access));
+    others_req = *others_req_ptr;
+
+    memLen = 0;
+    for (i = 0; i < nprocs; i++)
+        memLen += count_others_req_per_proc[i];
+    ptr = (ADIO_Offset *) ADIOI_Malloc(memLen * 2 * sizeof(ADIO_Offset));
+    mem_ptrs = (MPI_Aint *) ADIOI_Malloc(memLen * sizeof(MPI_Aint));
+    others_req[0].offsets = ptr;
+    others_req[0].mem_ptrs = mem_ptrs;
+
+    count_others_req_procs = 0;
+    for (i = 0; i < nprocs; i++) {
+        if (count_others_req_per_proc[i]) {
+            others_req[i].count = count_others_req_per_proc[i];
+            others_req[i].offsets = ptr;
+            ptr += count_others_req_per_proc[i];
+            others_req[i].lens = ptr;
+            ptr += count_others_req_per_proc[i];
+            others_req[i].mem_ptrs = mem_ptrs;
+            mem_ptrs += count_others_req_per_proc[i];
+            count_others_req_procs++;
+        } else
+            others_req[i].count = 0;
+    }
+    *count_others_req_per_proc_ptr = count_others_req_per_proc;
+
+/* now send the calculated offsets and lengths to respective processes */
+
+    requests = (MPI_Request *)
+        ADIOI_Malloc(1 + (count_my_req_aggr + count_others_req_procs) * sizeof(MPI_Request));
+/* +1 to avoid a 0-size malloc */
+
+    j = 0;
+    for (i = 0; i < nprocs; i++) {
+        if (others_req[i].count == 0)
+            continue;
+        if (i == myrank)
+            /* send to self uses memcpy(), here
+             * others_req[i].count == my_req[myrank].count
+             */
+            memcpy(others_req[i].offsets, my_req[myrank].offsets,
+                   2 * my_req[myrank].count * sizeof(ADIO_Offset));
+        else
+            MPI_Irecv(others_req[i].offsets, 2 * others_req[i].count,
+                      ADIO_OFFSET, i, 0, fd->comm, &requests[j++]);
+    }
+
+    for (i = 0; i < fd->hints->cb_nodes; i++) {
+        if (my_req[i].count && i != myrank)
+            MPI_Isend(my_req[i].offsets, 2 * my_req[i].count,
+                      ADIO_OFFSET, fd->hints->ranklist[i], 0, fd->comm,
+                      &requests[j++]);
+    }
+
+    if (j) {
+#ifdef MPI_STATUSES_IGNORE
+        MPI_Waitall(j, requests, MPI_STATUSES_IGNORE);
+#else
+        MPI_Status *statuses = (MPI_Status *) ADIOI_Malloc(j * sizeof(MPI_Status));
+        MPI_Waitall(j, requests, statuses);
+        ADIOI_Free(statuses);
+#endif
+    }
+
+    ADIOI_Free(requests);
+
+    *count_others_req_procs_ptr = count_others_req_procs;
+#ifdef AGGREGATION_PROFILE
+    MPE_Log_event(5027, 0, NULL);
+#endif
+}
+
 void ADIOI_LUSTRE_WriteStridedColl(ADIO_File fd, const void *buf, MPI_Aint count,
                                    MPI_Datatype buftype,
                                    int file_ptr_type, ADIO_Offset offset,
@@ -427,9 +547,11 @@ void ADIOI_LUSTRE_WriteStridedColl(ADIO_File fd, const void *buf, MPI_Aint count
          * count_others_req_per_proc[i] indicates how many noncontiguous
          * requests from process i that fall into this process's file domain.
          */
-        ADIOI_Calc_others_req(fd, count_my_req_procs, count_my_req_per_proc,
-                              my_req, nprocs, myrank, &count_others_req_procs,
-                              &count_others_req_per_proc, &others_req);
+        ADIOI_LUSTRE_Calc_others_req(fd, count_my_req_procs,
+                                     count_my_req_per_proc, my_req, nprocs,
+                                     myrank,
+                                     &count_others_req_procs,
+                                     &count_others_req_per_proc, &others_req);
 
         /* Two-phase I/O: first communication phase to exchange write data from
          * all processes to the I/O aggregators, followed by the write phase
