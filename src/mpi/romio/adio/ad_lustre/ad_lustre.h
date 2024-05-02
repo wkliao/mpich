@@ -81,5 +81,5 @@ int ADIOI_LUSTRE_Docollect(ADIO_File fd, int contig_access_count,
 
 void ADIOI_LUSTRE_Get_striping_info(ADIO_File fd, int *striping_info, int mode);
 
-int ADIOI_LUSTRE_Calc_aggregator(ADIO_File fd, ADIO_Offset off, ADIO_Offset * len, int stripe_size);
+int ADIOI_LUSTRE_Calc_aggregator(ADIO_File fd, ADIO_Offset off, ADIO_Offset * len);
 #endif /* AD_LUSTRE_H_INCLUDED */
