@@ -3,6 +3,8 @@
  *     See COPYRIGHT in top-level directory
  */
 
+#include <stdio.h> /* snprintf() */
+
 /* Test case from John Bent (ROMIO req #835)
  * Aggregation code was not handling certain access patterns when collective
  * buffering forced */
@@ -10,7 +12,6 @@
 #include <unistd.h>
 #include <stdlib.h>
 #include <mpi.h>
-#include <stdio.h>
 #include <string.h>
 
 #define NUM_OBJS 4
