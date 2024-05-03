@@ -90,12 +90,13 @@ void ADIOI_LUSTRE_Calc_my_req(ADIO_File fd, ADIO_Offset * offset_list,
                               int nprocs,
                               int *count_my_req_procs_ptr,
                               int **count_my_req_per_proc_ptr,
-                              ADIOI_Access ** my_req_ptr, ADIO_Offset *** buf_idx_ptr)
+                              ADIOI_Access ** my_req_ptr, int buftype_is_contig,
+                              ADIO_Offset ** buf_idx)
 {
     int *count_my_req_per_proc, count_my_req_procs;
     int i, l, proc, *aggr_ranks;
     size_t nelems;
-    ADIO_Offset avail_len, rem_len, curr_idx, off, **buf_idx, *ptr;
+    ADIO_Offset avail_len, rem_len, curr_idx, off, *ptr;
     ADIO_Offset *avail_lens;
     ADIOI_Access *my_req;
 
@@ -157,21 +158,19 @@ void ADIOI_LUSTRE_Calc_my_req(ADIO_File fd, ADIO_Offset * offset_list,
      * starting index in user_buf where data will be sent to proc 'i'. This
      * allows sends to be done without extra buffer.
      */
-    ptr = (ADIO_Offset *) ADIOI_Malloc((nelems * 3 + nprocs) * sizeof(ADIO_Offset));
-
-    /* allocate space for buf_idx */
-    buf_idx = (ADIO_Offset **) ADIOI_Malloc(nprocs * sizeof(ADIO_Offset *));
-    buf_idx[0] = ptr;
-    for (i = 1; i < nprocs; i++)
-        buf_idx[i] = buf_idx[i - 1] + count_my_req_per_proc[i - 1] + 1;
-    ptr += nelems + nprocs;     /* "+ nprocs" puts a terminal index at the end */
+    if (buf_idx != NULL && buftype_is_contig) {
+        buf_idx[0] = (ADIO_Offset *) ADIOI_Malloc(nelems * sizeof(ADIO_Offset));
+        for (i = 1; i < nprocs; i++)
+            buf_idx[i] = buf_idx[i - 1] + count_my_req_per_proc[i - 1];
+    }
 
     /* allocate space for my_req and its members offsets and lens */
     *my_req_ptr = (ADIOI_Access *) ADIOI_Malloc(nprocs * sizeof(ADIOI_Access));
     my_req = *my_req_ptr;
-    my_req[0].offsets = ptr;
+    my_req[0].offsets = (ADIO_Offset *) ADIOI_Malloc(nelems * 2 * sizeof(ADIO_Offset));
 
     count_my_req_procs = 0;
+    ptr = my_req[0].offsets;
     for (i = 0; i < nprocs; i++) {
         if (count_my_req_per_proc[i]) {
             my_req[i].offsets = ptr;
@@ -196,8 +195,10 @@ void ADIOI_LUSTRE_Calc_my_req(ADIO_File fd, ADIO_Offset * offset_list,
 
         l = my_req[proc].count;
         ADIOI_Assert(l < count_my_req_per_proc[proc]);
-        buf_idx[proc][l] = curr_idx;
-        curr_idx += avail_len;
+        if (buf_idx != NULL && buftype_is_contig) {
+            buf_idx[proc][l] = curr_idx;
+            curr_idx += avail_len;
+        }
         rem_len = len_list[i] - avail_len;
 
         /* Each my_req[i] contains the number of this process's noncontiguous
@@ -215,8 +216,10 @@ void ADIOI_LUSTRE_Calc_my_req(ADIO_File fd, ADIO_Offset * offset_list,
 
             l = my_req[proc].count;
             ADIOI_Assert(l < count_my_req_per_proc[proc]);
-            buf_idx[proc][l] = curr_idx;
-            curr_idx += avail_len;
+            if (buf_idx != NULL && buftype_is_contig) {
+                buf_idx[proc][l] = curr_idx;
+                curr_idx += avail_len;
+            }
             rem_len -= avail_len;
 
             my_req[proc].offsets[l] = off;
@@ -240,7 +243,6 @@ void ADIOI_LUSTRE_Calc_my_req(ADIO_File fd, ADIO_Offset * offset_list,
 #endif
 
     *count_my_req_procs_ptr = count_my_req_procs;
-    *buf_idx_ptr = buf_idx;
 }
 
 static
@@ -531,9 +533,12 @@ void ADIOI_LUSTRE_WriteStridedColl(ADIO_File fd, const void *buf, MPI_Aint count
          * into the file domains of each I/O aggregator. No inter-process
          * communication is needed.
          */
+        if (buftype_is_contig == 1)
+            buf_idx = (ADIO_Offset **) ADIOI_Malloc(nprocs * sizeof(ADIO_Offset*));
         ADIOI_LUSTRE_Calc_my_req(fd, offset_list, len_list, contig_access_count,
                                  nprocs, &count_my_req_procs,
-                                 &count_my_req_per_proc, &my_req, &buf_idx);
+                                 &count_my_req_per_proc,
+                                 &my_req, buftype_is_contig, buf_idx);
 
         /* Calculate the portions of all other process's requests fall into
          * this process's file domain (note only I/O aggregators are assigned
@@ -569,8 +574,11 @@ void ADIOI_LUSTRE_WriteStridedColl(ADIO_File fd, const void *buf, MPI_Aint count
         ADIOI_Free_others_req(nprocs, count_others_req_per_proc, others_req);
 
         ADIOI_Free(count_my_req_per_proc);
-        ADIOI_Free(buf_idx[0]);
-        ADIOI_Free(buf_idx);
+        if (buf_idx != NULL) {
+            ADIOI_Free(buf_idx[0]);
+            ADIOI_Free(buf_idx);
+        }
+        ADIOI_Free(my_req[0].offsets);
         ADIOI_Free(my_req);
     }
     ADIOI_Free(offset_list);
@@ -720,7 +728,8 @@ static void ADIOI_LUSTRE_Exch_and_write(ADIO_File fd, const void *buf,
      * when user buffer is contiguous.
      */
     send_buf_idx = off_list + ntimes;
-    this_buf_idx = send_buf_idx + nprocs;
+    if (flat_buf->count == 1)
+        this_buf_idx = (ADIO_Offset *) ADIOI_Malloc(nprocs * sizeof(ADIO_Offset));
 
     /* allocate int buffers altogether at once in a single calloc call */
     recv_curr_offlen_ptr = (int *) ADIOI_Calloc(nprocs * 9, sizeof(int));
@@ -807,7 +816,8 @@ static void ADIOI_LUSTRE_Exch_and_write(ADIO_File fd, const void *buf,
          */
         for (i = 0; i < nprocs; i++) {
             if (my_req[i].count) {
-                this_buf_idx[i] = buf_idx[i][send_curr_offlen_ptr[i]];
+                if (flat_buf->count == 1)
+                    this_buf_idx[i] = buf_idx[i][send_curr_offlen_ptr[i]];
                 for (j = send_curr_offlen_ptr[i]; j < my_req[i].count; j++) {
                     if (my_req[i].offsets[j] < iter_end_off)
                         send_size[i] += my_req[i].lens[j];
@@ -890,6 +900,8 @@ static void ADIOI_LUSTRE_Exch_and_write(ADIO_File fd, const void *buf,
         ADIOI_Free(write_buf);
     ADIOI_Free(recv_curr_offlen_ptr);
     ADIOI_Free(off_list);
+    if (flat_buf->count == 1)
+        ADIOI_Free(this_buf_idx);
 }
 
 /* This subroutine is copied from ADIOI_Heap_merge(), but modified to coalesce
@@ -1195,7 +1207,6 @@ static void ADIOI_LUSTRE_W_Exchange_data(ADIO_File fd, const void *buf,
     if (flat_buf->count == 1) {
         for (i = 0; i < nprocs; i++)
             if (send_size[i] && i != myrank) {
-                ADIOI_Assert(buf_idx[i] != -1);
                 MPI_Issend((char *) buf + buf_idx[i], send_size[i],
                            MPI_BYTE, i, ADIOI_COLL_TAG(i, iter), fd->comm, &requests[nreqs++]);
             }
