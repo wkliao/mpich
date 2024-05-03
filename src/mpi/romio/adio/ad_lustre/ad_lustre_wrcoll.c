@@ -69,7 +69,7 @@ static void ADIOI_LUSTRE_W_Exchange_data(ADIO_File fd, const void *buf,
                                          ADIO_Offset *buf_idx,
                                          ADIO_Offset **srt_off, MPI_Count **srt_len, MPI_Count *srt_num,
                                          int *error_code);
-static void ADIOI_LUSTRE_IterateOneSided(ADIO_File fd, const void *buf, int *striping_info,
+static void ADIOI_LUSTRE_IterateOneSided(ADIO_File fd, const void *buf,
                                          ADIO_Offset * offset_list, ADIO_Offset * len_list,
                                          MPI_Count contig_access_count,
                                          MPI_Count currentValidDataIndex, MPI_Aint count,
@@ -253,7 +253,7 @@ void ADIOI_LUSTRE_WriteStridedColl(ADIO_File fd, const void *buf, MPI_Aint count
      */
 
     int i, nprocs, nonzero_nprocs, myrank, old_error, tmp_error;
-    int striping_info[3], do_collect = 0;
+    int do_collect = 0;
     MPI_Count contig_access_count = 0;
     int buftype_is_contig;
     ADIO_Offset orig_fp, start_offset, end_offset;
@@ -382,18 +382,13 @@ void ADIOI_LUSTRE_WriteStridedColl(ADIO_File fd, const void *buf, MPI_Aint count
         return;
     }
 
-    /* Get Lustre hints information */
-    striping_info[0] = fd->hints->striping_unit;
-    striping_info[1] = fd->hints->striping_factor;
-    striping_info[2] = fd->hints->cb_nodes;
-
     if ((fd->romio_write_aggmethod == 1) || (fd->romio_write_aggmethod == 2)) {
         /* If user has set hint ROMIO_WRITE_AGGMETHOD env variable to to use a
          * one-sided aggregation method then do that at this point instead of
          * using the traditional MPI point-to-point communication, i.e.
          * MPI_Isend and MPI_Irecv.
          */
-        ADIOI_LUSTRE_IterateOneSided(fd, buf, striping_info, offset_list, len_list,
+        ADIOI_LUSTRE_IterateOneSided(fd, buf, offset_list, len_list,
                                      contig_access_count, nonzero_nprocs, count,
                                      file_ptr_type, offset, start_offset, end_offset,
                                      min_st_loc, max_end_loc, buftype, myrank, error_code);
@@ -1300,7 +1295,7 @@ static void ADIOI_LUSTRE_Fill_send_buffer(ADIO_File fd, const void *buf,
  * flush the collective buffer to the file when fully packed, repeating this
  * process until all the data is written to the file.
  */
-static void ADIOI_LUSTRE_IterateOneSided(ADIO_File fd, const void *buf, int *striping_info,
+static void ADIOI_LUSTRE_IterateOneSided(ADIO_File fd, const void *buf,
                                          ADIO_Offset * offset_list, ADIO_Offset * len_list,
                                          MPI_Count contig_access_count,
                                          MPI_Count currentValidDataIndex, MPI_Aint count,
@@ -1310,7 +1305,8 @@ static void ADIOI_LUSTRE_IterateOneSided(ADIO_File fd, const void *buf, int *str
                                          MPI_Datatype buftype, int myrank, int *error_code)
 {
     int i;
-    int stripesPerAgg = fd->hints->cb_buffer_size / striping_info[0];
+    int striping_unit = fd->hints->striping_unit;
+    int stripesPerAgg = fd->hints->cb_buffer_size / striping_unit;
     if (stripesPerAgg == 0) {
         /* The striping unit is larger than the collective buffer size
          * therefore we must abort since the buffer has already been
@@ -1319,7 +1315,7 @@ static void ADIOI_LUSTRE_IterateOneSided(ADIO_File fd, const void *buf, int *str
         FPRINTF(stderr, "Error: The collective buffer size %d is less "
                 "than the striping unit size %d - the ROMIO "
                 "Lustre one-sided write aggregation algorithm "
-                "cannot continue.\n", fd->hints->cb_buffer_size, striping_info[0]);
+                "cannot continue.\n", fd->hints->cb_buffer_size, striping_unit);
         MPI_Abort(MPI_COMM_WORLD, 1);
     }
 
@@ -1327,7 +1323,7 @@ static void ADIOI_LUSTRE_IterateOneSided(ADIO_File fd, const void *buf, int *str
      * stripes used in the file times this co_ratio - each stripe is written by
      * co_ratio aggregators this information is contained in the striping_info.
      */
-    int numStripedAggs = striping_info[2];
+    int numStripedAggs = fd->hints->cb_nodes;
 
     int orig_cb_nodes = fd->hints->cb_nodes;
     fd->hints->cb_nodes = numStripedAggs;
@@ -1337,7 +1333,7 @@ static void ADIOI_LUSTRE_IterateOneSided(ADIO_File fd, const void *buf, int *str
      * one-sided collective writes via multi-threading as well as multiple communicators.
      */
     ADIOI_OneSidedStripeParms stripeParms;
-    stripeParms.stripeSize = striping_info[0];
+    stripeParms.stripeSize = striping_unit;
     stripeParms.stripedLastFileOffset = lastFileOffset;
     stripeParms.iWasUsedStripingAgg = 0;
     stripeParms.numStripesUsed = 0;
@@ -1357,7 +1353,7 @@ static void ADIOI_LUSTRE_IterateOneSided(ADIO_File fd, const void *buf, int *str
      * have been packed or the aggregation for all the data is complete, minimizing
      * synchronization.
      */
-    stripeParms.segmentLen = ((ADIO_Offset) numStripedAggs) * ((ADIO_Offset) (striping_info[0]));
+    stripeParms.segmentLen = ((ADIO_Offset) numStripedAggs) * ((ADIO_Offset) (striping_unit));
 
     /* These arrays define the file offsets for the stripes for a given segment - similar
      * to the concept of file domains in GPFS, essentially file domains for the segment.
@@ -1375,14 +1371,14 @@ static void ADIOI_LUSTRE_IterateOneSided(ADIO_File fd, const void *buf, int *str
     MPI_Count startingStripeWithData = 0;
     MPI_Count foundStartingStripeWithData = 0;
     while (!foundStartingStripeWithData) {
-        if (((startingStripeWithData + 1) * (ADIO_Offset) (striping_info[0])) > firstFileOffset)
+        if (((startingStripeWithData + 1) * (ADIO_Offset) (striping_unit)) > firstFileOffset)
             foundStartingStripeWithData = 1;
         else
             startingStripeWithData++;
     }
 
     ADIO_Offset currentSegementOffset =
-        (ADIO_Offset) startingStripeWithData * (ADIO_Offset) (striping_info[0]);
+        (ADIO_Offset) startingStripeWithData * (ADIO_Offset) (striping_unit);
 
     MPI_Count numSegments =
         ((lastFileOffset + (ADIO_Offset) 1 - currentSegementOffset) / stripeParms.segmentLen);
@@ -1435,12 +1431,12 @@ static void ADIOI_LUSTRE_IterateOneSided(ADIO_File fd, const void *buf, int *str
                     segment_stripe_start[i] = firstFileOffset;
                 else
                     segment_stripe_start[i] = segment_stripe_offset;
-                if ((segment_stripe_offset + (ADIO_Offset) (striping_info[0])) > lastFileOffset)
+                if ((segment_stripe_offset + (ADIO_Offset) (striping_unit)) > lastFileOffset)
                     segment_stripe_end[i] = lastFileOffset;
                 else
                     segment_stripe_end[i] =
-                        segment_stripe_offset + (ADIO_Offset) (striping_info[0]) - (ADIO_Offset) 1;
-                segment_stripe_offset += (ADIO_Offset) (striping_info[0]);
+                        segment_stripe_offset + (ADIO_Offset) (striping_unit) - (ADIO_Offset) 1;
+                segment_stripe_offset += (ADIO_Offset) (striping_unit);
             }
 
             /* In the interest of performance for non-contiguous data with large offset lists
@@ -1631,7 +1627,7 @@ static void ADIOI_LUSTRE_IterateOneSided(ADIO_File fd, const void *buf, int *str
                                       &end_offset, &contig_access_count);
 
                 currentSegementOffset =
-                    (ADIO_Offset) startingStripeWithData *(ADIO_Offset) (striping_info[0]);
+                    (ADIO_Offset) startingStripeWithData *(ADIO_Offset) (striping_unit);
                 fd->romio_onesided_always_rmw = 1;
                 fd->romio_onesided_no_rmw = 1;
 
