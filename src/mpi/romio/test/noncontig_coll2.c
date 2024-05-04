@@ -268,12 +268,12 @@ int main(int argc, char **argv)
     if (!mynod) {
         i = 1;
         /* TODO: at some point, accept -v for verbose */
-        while ((i < argc) && strcmp("-fname", *argv)) {
+        while ((i < argc) && strcmp("-f", *argv)) {
             i++;
             argv++;
         }
         if (i >= argc) {
-            fprintf(stderr, "\n*#  Usage: noncontig_coll -fname filename\n\n");
+            fprintf(stderr, "\n*#  Usage: noncontig_coll -f filename\n\n");
             MPI_Abort(MPI_COMM_WORLD, 1);
         }
         argv++;

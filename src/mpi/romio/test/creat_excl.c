@@ -34,7 +34,7 @@ void parse_args(int argc, char **argv, int rank, options * opts)
     if (rank == 0) {
         i = 1;
         while (i < argc) {
-            if (strcmp("-fname", argv[i]) == 0) {
+            if (strcmp("-f", argv[i]) == 0) {
                 len = strlen(argv[i + 1]);
                 opts->fname = (char *) malloc(len + 1);
                 strcpy(opts->fname, argv[i + 1]);
@@ -53,7 +53,7 @@ void parse_args(int argc, char **argv, int rank, options * opts)
             }
         }
         if (opts->fname == NULL) {      /* didn't get a filename */
-            fprintf(stderr, "Usage: %s -fname filename [-aggregate] [-verbose]\n", argv[0]);
+            fprintf(stderr, "Usage: %s -f filename [-aggregate] [-verbose]\n", argv[0]);
             MPI_Abort(MPI_COMM_WORLD, 1);
         }
         MPI_Bcast(&len, 1, MPI_INT, 0, MPI_COMM_WORLD);

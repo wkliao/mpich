@@ -91,7 +91,7 @@ int main(int argc, char **argv)
    broadcasts it to other processes */
     if (!mynod) {
         i = 1;
-        while ((i < argc) && strcmp("-fname", *argv)) {
+        while ((i < argc) && strcmp("-f", *argv)) {
             if (!strcmp("-v", *argv))
                 verbose = 1;
             else if (!strcmp("-u", *argv))
@@ -104,7 +104,7 @@ int main(int argc, char **argv)
             argv++;
         }
         if (i >= argc) {
-            fprintf(stderr, "\n*#  Usage: file_info [-v|-u|-b|-l] -fname filename\n\n");
+            fprintf(stderr, "\n*#  Usage: file_info [-v|-u|-b|-l] -f filename\n\n");
             MPI_Abort(MPI_COMM_WORLD, 1);
         }
         argv++;

@@ -1,11 +1,11 @@
 This directory contains a few example programs. 
 
 Each program takes the filename as a command-line argument
-"-fname filename". 
+"-f filename".
 
 If you are using "mpirun" to run an MPI program, you can run the 
 program "simple" with two processes as follows:
-   mpirun -np 2 simple -fname test
+   mpirun -np 2 simple -f test
 
 
 simple.c: Each process creates its own file, writes to it, reads it
