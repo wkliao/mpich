@@ -23,18 +23,23 @@ AM_CPPFLAGS += -I$(top_builddir)/adio/include -I$(top_srcdir)/adio/include @mpl_
 AM_CFLAGS = $(USER_CFLAGS)
 AM_FFLAGS = $(USER_FFLAGS)
 
-CTESTS = simple perf async coll_test coll_perf misc file_info excl large_array \
+CTESTS = simple async coll_test misc file_info excl \
      atomicity noncontig i_noncontig noncontig_coll split_coll shared_fp \
-     large_file psimple error status noncontig_coll2 aggregation1 aggregation2 \
-     async-multiple ordered_fp hindexed external32 types_with_zeros darray_read syshints \
+     psimple error status noncontig_coll2 aggregation1 aggregation2 \
+     async-multiple ordered_fp hindexed types_with_zeros darray_read syshints \
      fstype_prefix
+
+SKIP_TESTS = perf coll_perf large_array large_file external32
+
 FTESTS = fcoll_test fperf fmisc pfcoll_test 
 
-check_PROGRAMS = $(CTESTS)
+check_PROGRAMS = $(CTESTS) $(SKIP_TESTS)
+TESTS = $(CTESTS)
 
 if BUILD_F77_TESTS
 
 check_PROGRAMS += $(FTESTS)
+TESTS += $(FTESTS)
 nodist_fperf_SOURCES = fperf.f
 nodist_fcoll_test_SOURCES = fcoll_test.f
 nodist_fmisc_SOURCES = fmisc.f
@@ -44,7 +49,6 @@ endif BUILD_F77_TESTS
 
 TESTS_ENVIRONMENT = export srcdir="$(srcdir)";
 
-TESTS = $(check_PROGRAMS)
 TEST_EXTENSIONS = .sh
 LOG_COMPILER = $(builddir)/parallel_run.sh
 SH_LOG_COMPILER =

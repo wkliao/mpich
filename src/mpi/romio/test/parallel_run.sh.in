@@ -36,19 +36,12 @@ if test "x$exe_name" = xfile_info ; then
     done
 elif test "x$exe_name" = xaggregation1 ; then
    $mpirun -np 4 ${valgrind_opt} ./aggregation1 -h -f $FILENAME
-elif test "x$exe_name" = xperf ; then
+elif test "x$exe_name" = xperf        ||
+     test "x$exe_name" = xcoll_perf   ||
+     test "x$exe_name" = xlarge_array ||
+     test "x$exe_name" = xlarge_file  ||
+     test "x$exe_name" = xexternal32 ; then
    # $mpirun -np 4 ${valgrind_opt} $1 -h -f $FILENAME
-   echo "skip testing $1"
-elif test "x$exe_name" = xcoll_perf ; then
-   # $mpirun -np 4 ${valgrind_opt} $1 -h -f $FILENAME
-   echo "skip testing $1"
-elif test "x$exe_name" = xlarge_array ; then
-   # $mpirun -np 4 ${valgrind_opt} $1 -h -f $FILENAME
-   echo "skip testing $1"
-elif test "x$exe_name" = xlarge_file ; then
-   # $mpirun -np 4 ${valgrind_opt} $1 -h -f $FILENAME
-   echo "skip testing $1"
-elif test "x$exe_name" = xexternal32 ; then
    echo "skip testing $1"
 elif test "x$exe_name" = xnoncontig ; then
    $mpirun -np 2 ${valgrind_opt} $1 -fname $FILENAME
