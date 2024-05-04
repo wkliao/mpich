@@ -65,16 +65,15 @@ static void ADIOI_LUSTRE_Exch_and_write(ADIO_File fd,
                                         Flat_list *flat_bview,
                                         ADIOI_Access *others_req,
                                         ADIOI_Access *my_req,
-                                        ADIOI_Offlen flat_fview,
+                                        Flat_list *flat_fview,
                                         ADIO_Offset min_st_loc,
                                         ADIO_Offset max_end_loc,
                                         ADIO_Offset **buf_idx,
                                         int *error_code);
 static void ADIOI_LUSTRE_Fill_send_buffer(ADIO_File fd, const void *buf,
+                                          Flat_list *flat_fview,
                                           Flat_list *flat_bview,
                                           char **send_buf,
-                                          MPI_Count *fileview_indx,
-                                          ADIOI_Offlen flat_fview,
                                           size_t send_total_size,
                                           const MPI_Count *send_size,
                                           char **self_buf,
@@ -83,9 +82,8 @@ static void ADIOI_LUSTRE_W_Exchange_data(ADIO_File fd, const void *buf,
                                          char *write_buf,
                                          char **recve_buf,
                                          char **send_buf_ptr,
+                                         Flat_list *flat_fview,
                                          Flat_list *flat_bview,
-                                         MPI_Count *fileview_indx,
-                                         ADIOI_Offlen flat_fview,
                                          const MPI_Count *send_size,
                                          const MPI_Count *recv_size,
                                          ADIO_Offset range_off,
@@ -111,9 +109,9 @@ static void ADIOI_LUSTRE_IterateOneSided(ADIO_File fd, const void *buf,
  * requests of this process fall into the file domains of all I/O aggregators.
  *   IN: flat_fview: this rank's flattened fileview datatype
  *       flat_fview.count: number of noncontiguous requests in file datatype.
- *       flat_fview.offsets[flat_fview.count] file offsets of noncontiguous
+ *       flat_fview.off[flat_fview.count] file offsets of noncontiguous
  *       requests.
- *       flat_fview.lens[flat_fview.count] lengths of noncontiguous requests.
+ *       flat_fview.len[flat_fview.count] lengths of noncontiguous requests.
  *   IN: buftype_is_contig: whether the buffer datatype is contiguous or not
  *   OUT: my_req_ptr[cb_nodes] offset-length pairs of this process's requests
  *        fall into the file domain of each aggregator
@@ -122,7 +120,7 @@ static void ADIOI_LUSTRE_IterateOneSided(ADIO_File fd, const void *buf,
  */
 static
 void ADIOI_LUSTRE_Calc_my_req(ADIO_File fd,
-                              ADIOI_Offlen flat_fview,
+                              Flat_list flat_fview,
                               int buftype_is_contig,
                               ADIOI_Access **my_req_ptr,
                               ADIO_Offset **buf_idx)
@@ -153,11 +151,11 @@ void ADIOI_LUSTRE_Calc_my_req(ADIO_File fd,
     nelems = 0;
     for (i = 0; i < flat_fview.count; i++) {
         /* short circuit offset/len processing if zero-byte read/write. */
-        if (flat_fview.lens[i] == 0)
+        if (flat_fview.len[i] == 0)
             continue;
 
-        off = flat_fview.offsets[i];
-        avail_len = flat_fview.lens[i];
+        off = flat_fview.off[i];
+        avail_len = flat_fview.len[i];
         /* ADIOI_LUSTRE_Calc_aggregator() modifies the value of 'avail_len' to
          * the amount that is only covered by the aggr's file domain. The
          * remaining (tail) will continue to be processed to determine to whose
@@ -172,7 +170,7 @@ void ADIOI_LUSTRE_Calc_my_req(ADIO_File fd,
          */
         aggr = ADIOI_LUSTRE_Calc_aggregator(fd, off, &avail_len);
         aggr_ranks[i] = aggr;          /* first aggregator ID of this request */
-        avail_lens[i] = avail_len;     /* length covered, may be < flat_fview.lens[i] */
+        avail_lens[i] = avail_len;     /* length covered, may be < flat_fview.len[i] */
 #ifdef WKL_DEBUG
 assert(aggr >= 0 && aggr <= cb_nodes);
 #endif
@@ -183,7 +181,7 @@ assert(aggr >= 0 && aggr <= cb_nodes);
         /* rem_len is the amount of ith offset-length pair that is not covered
          * by aggregator aggr's file domain.
          */
-        rem_len = flat_fview.lens[i] - avail_len;
+        rem_len = flat_fview.len[i] - avail_len;
 
 #ifdef WKL_DEBUG
 assert(rem_len >= 0);
@@ -233,10 +231,10 @@ for (i=0; i<nelems; i++) buf_idx[0][i] = -1;
     curr_idx = 0;
     for (i = 0; i < flat_fview.count; i++) {
         /* short circuit offset/len processing if zero-byte read/write. */
-        if (flat_fview.lens[i] == 0)
+        if (flat_fview.len[i] == 0)
             continue;
 
-        off = flat_fview.offsets[i];
+        off = flat_fview.off[i];
         aggr = aggr_ranks[i];
 #ifdef WKL_DEBUG
 assert(aggr >= 0 && aggr <= cb_nodes);
@@ -248,7 +246,7 @@ assert(aggr >= 0 && aggr <= cb_nodes);
             buf_idx[aggr][l] = curr_idx;
             curr_idx += avail_len;
         }
-        rem_len = flat_fview.lens[i] - avail_len;
+        rem_len = flat_fview.len[i] - avail_len;
 
         /* Each my_req[i] contains the number of this process's noncontiguous
          * requests that fall into aggregator aggr's file domain.
@@ -465,8 +463,8 @@ void ADIOI_LUSTRE_WriteStridedColl(ADIO_File fd, const void *buf, MPI_Aint count
     ADIO_Offset orig_fp, start_offset, end_offset;
     ADIO_Offset min_st_loc = -1, max_end_loc = -1;
     MPI_Aint lb;
-    ADIOI_Offlen flat_fview;
     ADIOI_Flatlist_node *flat_view = NULL;
+    Flat_list flat_fview;
     Flat_list flat_bview;
 
     MPI_Comm_size(fd->comm, &nprocs);
@@ -474,9 +472,10 @@ void ADIOI_LUSTRE_WriteStridedColl(ADIO_File fd, const void *buf, MPI_Aint count
 
     orig_fp = fd->fp_ind;
 
-    flat_fview.offsets = NULL;
-    flat_fview.lens = NULL;
+    flat_fview.off = NULL;
+    flat_fview.len = NULL;
     flat_fview.count = 0;
+    flat_fview.idx   = 0;
 
     /* Check if collective write is actually necessary, if cb_write hint isn't
      * disabled by users.
@@ -486,9 +485,9 @@ void ADIOI_LUSTRE_WriteStridedColl(ADIO_File fd, const void *buf, MPI_Aint count
         ADIO_Offset st_end[2], *st_end_all = NULL;
 
         /* Calculate and construct the list of starting file offsets and
-         * lengths of write requests of this process into flat_fview.offsets[]
-         * and flat_fview.lens[], respectively. The number of elements in both
-         * flat_fview.offsets[] and flat_fview.lens[] is flat_fview.count.
+         * lengths of write requests of this process into flat_fview.off[]
+         * and flat_fview.len[], respectively. The number of elements in both
+         * flat_fview.off[] and flat_fview.len[] is flat_fview.count.
          * No inter-process communication is needed.
          *
          * From start_offset to end_offset is this process's aggregate access
@@ -497,9 +496,11 @@ void ADIOI_LUSTRE_WriteStridedColl(ADIO_File fd, const void *buf, MPI_Aint count
          * end_offset=99. No inter-process communication is needed. If this
          * process has no data to write, end_offset == (start_offset - 1)
          */
+        MPI_Count ftype_count;
         ADIOI_Calc_my_off_len(fd, count, buftype, file_ptr_type, offset,
-                              &flat_fview.offsets, &flat_fview.lens,
-                              &start_offset, &end_offset, &flat_fview.count);
+                              &flat_fview.off, &flat_fview.len,
+                              &start_offset, &end_offset, &ftype_count);
+        flat_fview.count = ftype_count;
 
         /* All processes gather starting and ending file offsets of requests
          * from all processes into st_end_all[]. Even indices of st_end_all[]
@@ -560,7 +561,7 @@ void ADIOI_LUSTRE_WriteStridedColl(ADIO_File fd, const void *buf, MPI_Aint count
             /* This ADIOI_LUSTRE_Docollect() calls MPI_Allreduce(), so all
              * processes must participate.
              */
-            do_collect = ADIOI_LUSTRE_Docollect(fd, flat_fview.count, flat_fview.lens, nprocs);
+            do_collect = ADIOI_LUSTRE_Docollect(fd, flat_fview.count, flat_fview.len, nprocs);
         }
     }
 
@@ -612,8 +613,8 @@ void ADIOI_LUSTRE_WriteStridedColl(ADIO_File fd, const void *buf, MPI_Aint count
          * using the traditional MPI point-to-point communication, i.e.
          * MPI_Issend and MPI_Irecv.
          */
-        ADIOI_LUSTRE_IterateOneSided(fd, buf, flat_fview.offsets,
-                                     flat_fview.lens, flat_fview.count,
+        ADIOI_LUSTRE_IterateOneSided(fd, buf, flat_fview.off,
+                                     flat_fview.len, flat_fview.count,
                                      nonzero_nprocs, count,
                                      file_ptr_type, offset, start_offset, end_offset,
                                      min_st_loc, max_end_loc, buftype, myrank, error_code);
@@ -654,7 +655,7 @@ void ADIOI_LUSTRE_WriteStridedColl(ADIO_File fd, const void *buf, MPI_Aint count
          * MPI_Irecv, and MPI_Waitall.
          */
         ADIOI_LUSTRE_Exch_and_write(fd, buf, &flat_bview, others_req,
-                                    my_req, flat_fview, min_st_loc,
+                                    my_req, &flat_fview, min_st_loc,
                                     max_end_loc, buf_idx, error_code);
 
         /* free all memory allocated */
@@ -669,7 +670,9 @@ void ADIOI_LUSTRE_WriteStridedColl(ADIO_File fd, const void *buf, MPI_Aint count
         ADIOI_Free(my_req[0].offsets);
         ADIOI_Free(my_req);
     }
-    ADIOI_Free(flat_fview.offsets);
+
+    if (flat_fview.off != NULL)
+        ADIOI_Free(flat_fview.off);
 
     /* If this collective write is followed by an independent write, it's
      * possible to have those subsequent writes on other processes race ahead
@@ -798,7 +801,7 @@ static void ADIOI_LUSTRE_Exch_and_write(ADIO_File fd,
                                         Flat_list *flat_bview,
                                         ADIOI_Access *others_req,
                                         ADIOI_Access *my_req,
-                                        ADIOI_Offlen flat_fview,
+                                        Flat_list *flat_fview,
                                         ADIO_Offset min_st_loc,
                                         ADIO_Offset max_end_loc,
                                         ADIO_Offset **buf_idx,
@@ -1011,7 +1014,6 @@ timing[0] = s_time = MPI_Wtime();
     srt_off_len = (off_len_list*) ADIOI_Malloc(nbufs * sizeof(off_len_list));
 
     int ibuf = 0;
-    MPI_Count fileview_indx = 0;
 
 #ifdef WKL_DEBUG
 e_time = MPI_Wtime();
@@ -1119,9 +1121,8 @@ s_time = e_time;
                                      wbuf,               /* OUT: write buffer */
                                      &rbuf,              /* OUT: receive buffer */
                                      &send_buf[ibuf],    /* OUT: send buffer */
-                                     flat_bview,
-                                     &fileview_indx,
                                      flat_fview,
+                                     flat_bview,
                                      send_size,            /* IN: changed each round */
                                      recv_size[ibuf],      /* IN: changed each round */
                                      range_off,            /* IN: changed each round */
@@ -1439,9 +1440,8 @@ static void ADIOI_LUSTRE_W_Exchange_data(
             char                *write_buf,    /* OUT: internal buffer used to write in round iter */
             char               **recv_buf,     /* OUT: internal buffer used to receive in round iter */
             char               **send_buf_ptr, /* OUT: internal buffer used to send in round iter */
+            Flat_list           *flat_fview,   /* IN/OUT: flatterned file view */
             Flat_list           *flat_bview,   /* IN/OUT: flattened buffer type */
-            MPI_Count           *fileview_indx,
-            ADIOI_Offlen        flat_fview,    /* this process's file view offset-length pairs */
       const MPI_Count           *send_size,    /* send_size[i] is amount of this rank sent to aggregator i in round iter */
       const MPI_Count           *recv_size,    /* recv_size[i] is amount of this rank recv from rank i in round iter */
             ADIO_Offset          range_off,    /* starting file offset of this process's write region in round iter */
@@ -1625,10 +1625,9 @@ static void ADIOI_LUSTRE_W_Exchange_data(
         for (i = 1; i < cb_nodes; i++)
             send_buf[i] = send_buf[i - 1] + send_size[i - 1];
 
-        ADIOI_LUSTRE_Fill_send_buffer(fd, buf, flat_bview, send_buf,
-                                      fileview_indx, flat_fview,
-                                      send_total_size, send_size, &self_buf,
-                                      send_list);
+        ADIOI_LUSTRE_Fill_send_buffer(fd, buf, flat_fview, flat_bview,
+                                      send_buf, send_total_size, send_size,
+                                      &self_buf, send_list);
         /* Send buffers must not be touched before MPI_Waitall() is completed,
          * and thus send_buf will be freed in ADIOI_LUSTRE_Exch_and_write()
          */
@@ -1649,10 +1648,9 @@ static void ADIOI_LUSTRE_W_Exchange_data(
 
 static void ADIOI_LUSTRE_Fill_send_buffer(ADIO_File fd,
                                           const void *buf,
+                                          Flat_list *flat_fview,
                                           Flat_list *flat_bview,
                                           char **send_buf,
-                                          MPI_Count *fileview_indx,
-                                          ADIOI_Offlen flat_fview,
                                           size_t send_total_size,
                                           const MPI_Count *send_size,
                                           char **self_buf,
@@ -1695,17 +1693,17 @@ int num_memcpy=0;
                  - flat_bview->rem;
                  /* in case data left to be copied from previous round */
 
-    /* flat_fview.count: the number of contiguous file segments this
-     *     rank writes to. Each segment i is described by flat_fview.offs[i]
-     *     and flat_fview.lens[i].
-     * fileview_indx: the index to the flat_fview.offs[], flat_fview.lens[]
+    /* flat_fview->count: the number of contiguous file segments this
+     *     rank writes to. Each segment i is described by flat_fview->offs[i]
+     *     and flat_fview->len[i].
+     * flat_fview->idx: the index to the flat_fview->offs[], flat_fview->len[]
      *     that have been processed in the previous round.
      * For each contiguous off-len pair in this rank's file view, pack write
      * data into send buffers, send_buf[].
      */
-    for (i = *fileview_indx; i < flat_fview.count; i++) {
-        off = flat_fview.offsets[i];
-        rem_len = flat_fview.lens[i];
+    for (i = flat_fview->idx; i < flat_fview->count; i++) {
+        off = flat_fview->off[i];
+        rem_len = flat_fview->len[i];
 
         /* this off-len request may span to more than one I/O aggregator */
         while (rem_len != 0) {
@@ -1817,18 +1815,18 @@ num_memcpy++;
             /* len is the amount of data copied */
             off += len;
             rem_len -= len;
-            flat_fview.offsets[i] += len;
-            flat_fview.lens[i] -= len;
+            flat_fview->off[i] += len;
+            flat_fview->len[i] -= len;
             send_total_size -= len;
             if (send_total_size == 0) goto done;
         }
     }
 done:
-    if (flat_fview.lens[i] == 0) i++;
-    *fileview_indx = i;
+    if (flat_fview->len[i] == 0) i++;
+    flat_fview->idx = i;
 
 #ifdef WKL_DEBUG
-if (num_memcpy> 0) printf("---- flat_fview.count=%lld i=%d flat_bview->rnd=%lld fileview_indx=%lld flat_bview->count=%lld num_memcpy=%d\n",flat_fview.count,i,flat_bview->rnd,*fileview_indx,flat_bview->count,num_memcpy);
+if (num_memcpy> 0) printf("---- flat_fview->count=%lld i=%d flat_bview->rnd=%lld flat_fview->idx=%lld flat_bview->count=%lld num_memcpy=%d\n",flat_fview->count,i,flat_bview->rnd,flat_fview->idx,flat_bview->count,num_memcpy);
 #endif
 }
 
