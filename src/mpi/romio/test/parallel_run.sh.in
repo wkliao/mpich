@@ -25,13 +25,13 @@ rm -f ${FILENAME}*
 if test "x$exe_name" = xfile_info ; then
    for fs in @FILE_SYSTEM@ ; do
        if [ $fs = "testfs" ] ; then
-          $mpirun -np 4 ${valgrind_opt} $1 -fname $FILENAME
+          $mpirun -np 4 ${valgrind_opt} $1 -f $FILENAME
        elif [ $fs = "ufs" ] ; then
-          $mpirun -np 4 ${valgrind_opt} $1 -u -fname $FILENAME
+          $mpirun -np 4 ${valgrind_opt} $1 -u -f $FILENAME
        elif [ $fs = "gpfs" ] ; then
-          $mpirun -np 4 ${valgrind_opt} $1 -b -fname $FILENAME
+          $mpirun -np 4 ${valgrind_opt} $1 -b -f $FILENAME
        elif [ $fs = "lustre" ] ; then
-          $mpirun -np 4 ${valgrind_opt} $1 -l -fname $FILENAME
+          $mpirun -np 4 ${valgrind_opt} $1 -l -f $FILENAME
        fi
     done
 elif test "x$exe_name" = xaggregation1 ; then
@@ -43,18 +43,15 @@ elif test "x$exe_name" = xperf        ||
      test "x$exe_name" = xexternal32 ; then
    # $mpirun -np 4 ${valgrind_opt} $1 -h -f $FILENAME
    echo "skip testing $1"
-elif test "x$exe_name" = xnoncontig ; then
-   $mpirun -np 2 ${valgrind_opt} $1 -fname $FILENAME
-elif test "x$exe_name" = xi_noncontig ; then
-   $mpirun -np 2 ${valgrind_opt} $1 -fname $FILENAME
-elif test "x$exe_name" = xnoncontig_coll ; then
-   $mpirun -np 2 ${valgrind_opt} $1 -fname $FILENAME
+elif test "x$exe_name" = xnoncontig        ||
+     test "x$exe_name" = xi_noncontig      ||
+     test "x$exe_name" = xnoncontig_coll   ||
+     test "x$exe_name" = xtypes_with_zeros ; then
+   $mpirun -np 2 ${valgrind_opt} $1 -f $FILENAME
 elif test "x$exe_name" = xsyshints ; then
-   $mpirun -np 1 ${valgrind_opt} $1 -fname $srcdir/test_hintfile
-elif test "x$exe_name" = xtypes_with_zeros ; then
-   $mpirun -np 2 ${valgrind_opt} $1 -fname $FILENAME
+   $mpirun -np 1 ${valgrind_opt} $1 -f $srcdir/test_hintfile
 else
-   $mpirun -np 4 ${valgrind_opt} $1 -fname $FILENAME
+   $mpirun -np 4 ${valgrind_opt} $1 -f $FILENAME
 fi
 
 rm -f $FILENAME*

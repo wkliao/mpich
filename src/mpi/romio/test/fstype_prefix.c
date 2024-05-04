@@ -143,12 +143,12 @@ int main(int argc, char **argv)
    broadcasts it to other processes */
     if (!rank) {
         i = 1;
-        while ((i < argc) && strcmp("-fname", *argv)) {
+        while ((i < argc) && strcmp("-f", *argv)) {
             i++;
             argv++;
         }
         if (i >= argc) {
-            fprintf(stderr, "\n*#  Usage: %s -fname filename\n\n", argv[0]);
+            fprintf(stderr, "\n*#  Usage: %s -f filename\n\n", argv[0]);
             MPI_Abort(MPI_COMM_WORLD, 1);
         }
         argv++;

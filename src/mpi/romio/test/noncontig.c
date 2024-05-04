@@ -50,12 +50,12 @@ int main(int argc, char **argv)
    broadcasts it to other processes (length first, then string) */
     if (!mynod) {
         i = 1;
-        while ((i < argc) && strcmp("-fname", *argv)) {
+        while ((i < argc) && strcmp("-f", *argv)) {
             i++;
             argv++;
         }
         if (i >= argc) {
-            fprintf(stderr, "\n*#  Usage: noncontig -fname filename\n\n");
+            fprintf(stderr, "\n*#  Usage: noncontig -f filename\n\n");
             MPI_Abort(MPI_COMM_WORLD, 1);
         }
         argv++;

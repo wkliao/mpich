@@ -44,13 +44,13 @@
          argc = @F77IARGC@
          i = 0
          @F77GETARG@
-         do while ((i .lt. argc) .and. (str .ne. '-fname'))
+         do while ((i .lt. argc) .and. (str .ne. '-f'))
             i = i + 1
             @F77GETARG@
          end do
          if (i .ge. argc) then
             print *
-            print *, '*#  Usage: fcoll_test -fname filename'
+            print *, '*#  Usage: fcoll_test -f filename'
             print *
             call PMPI_ABORT(MPI_COMM_WORLD, 1, ierr)
          end if

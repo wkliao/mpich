@@ -43,12 +43,12 @@ int main(int argc, char **argv)
    broadcasts it to other processes */
     if (!rank) {
         i = 1;
-        while ((i < argc) && strcmp("-fname", *argv)) {
+        while ((i < argc) && strcmp("-f", *argv)) {
             i++;
             argv++;
         }
         if (i >= argc) {
-            fprintf(stderr, "\n*#  Usage: async -fname filename\n\n");
+            fprintf(stderr, "\n*#  Usage: async -f filename\n\n");
             MPI_Abort(MPI_COMM_WORLD, 1);
         }
         argv++;
