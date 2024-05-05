@@ -478,6 +478,8 @@ void ADIOI_LUSTRE_WriteStridedColl(ADIO_File fd, const void *buf, MPI_Aint count
     flat_ftype.len = NULL;
     flat_ftype.count = 0;
     flat_ftype.idx   = 0;
+    flat_ftype.rnd   = 0;
+    flat_ftype.rem   = 0;
 
     /* Check if collective write is actually necessary, if cb_write hint isn't
      * disabled by users.
@@ -486,28 +488,41 @@ void ADIOI_LUSTRE_WriteStridedColl(ADIO_File fd, const void *buf, MPI_Aint count
         int is_interleaved;
         ADIO_Offset st_end[2], *st_end_all = NULL;
 
-        /* Calculate and construct the list of starting file offsets and
-         * lengths of write requests of this process into flat_ftype.off[]
-         * and flat_ftype.len[], respectively. The number of elements in both
-         * flat_ftype.off[] and flat_ftype.len[] is flat_ftype.count.
-         * No inter-process communication is needed.
+        /* Construct the list of starting file offsets and write lengths of
+         * this rank, stored in flat_ftype.off[] and flat_ftype.len[],
+         * respectively. The array size of both flat_ftype.off[] and
+         * flat_ftype.len[] is flat_ftype.count.  flat_ftype.count is the
+         * number of noncontiguous file offset-length pairs.  Note
+         * flat_ftype.count has taken into account of argument 'count', i.e.
+         * the number of user buffer datatype in this request.
          *
-         * From start_offset to end_offset is this process's aggregate access
-         * file region. Note: end_offset points to the last byte-offset to be
+         * TODO: In the current implementation, even for a small fileview type,
+         *       the flat_ftype.count can still be large, when the write amount
+         *       is larger than the file type size. In order to reduce the
+         *       memory footprint, flat_ftype should be modified to describe
+         *       only one file type and use flat_ftype.rnd, flat_ftype.idx,
+         *       flat_ftype.rem to keep track the latest processed
+         *       offset-length pairs, just like the way flat_btype is used.
+         *
+         * From start_offset to end_offset is this rank's aggregate access file
+         * region. Note: end_offset points to the last byte-offset to be
          * accessed.  e.g., if start_offset=0 and 100 bytes to be read,
-         * end_offset=99. No inter-process communication is needed. If this
-         * process has no data to write, end_offset == (start_offset - 1)
+         * end_offset=99. If this rank has no data to write, end_offset ==
+         * (start_offset - 1)
+         *
+         * ADIOI_Calc_my_off_len() requires no inter-process communication.
          */
         int ftype_count;
         ADIOI_Calc_my_off_len(fd, count, buftype, file_ptr_type, offset,
                               &flat_ftype.off, &flat_ftype.len,
                               &start_offset, &end_offset, &ftype_count);
         flat_ftype.count = ftype_count;
+        flat_ftype.rem = (ftype_count > 0) ? flat_ftype.len[0] : 0;
 
-        /* All processes gather starting and ending file offsets of requests
-         * from all processes into st_end_all[]. Even indices of st_end_all[]
-         * are start offsets, odd indices are end offsets. st_end_all[] is used
-         * below to tell whether access across all process is interleaved.
+        /* Gather starting and ending file offsets of requests from all ranks
+         * into st_end_all[]. Even indices of st_end_all[] are start offsets,
+         * odd indices are end offsets. st_end_all[] is used below to tell
+         * whether access across all ranks is interleaved.
          */
         st_end[0] = start_offset;
         st_end[1] = end_offset;
@@ -515,10 +530,10 @@ void ADIOI_LUSTRE_WriteStridedColl(ADIO_File fd, const void *buf, MPI_Aint count
         MPI_Allgather(st_end, 2, ADIO_OFFSET, st_end_all, 2, ADIO_OFFSET, fd->comm);
 
         /* Find the starting and ending file offsets of aggregate access region
-         * and the number of processes that have non-zero length write
-         * requests. Also, check whether accesses are interleaved across
-         * processes. Below is a rudimentary check for interleaving, but should
-         * suffice for the moment.
+         * and the number of ranks that have non-zero length write requests.
+         * Also, check whether accesses are interleaved across ranks. Below is
+         * a rudimentary check for interleaving, but should suffice for the
+         * moment.
          */
         is_interleaved = 0;
         nonzero_nprocs = 0;
@@ -1027,9 +1042,9 @@ timing[3] += e_time - s_time;
 #ifdef WKL_DEBUG
 s_time = MPI_Wtime();
 #endif
-        /* Note that MPI standard requires that displacements in filetypes are
-         * in a monotonically non-decreasing order and that, for writes, the
-         * filetypes cannot specify overlapping regions in the file. This
+        /* Note that MPI standard (MPI3.1 Chapter 13.1.1 and MPI 4.0 Chapter
+         * 14.1.1) requires that the typemap displacements of etype and
+         * filetype are non-negative and monotonically nondecreasing. This
          * simplifies implementation a bit compared to reads.
          *
          * range_off     = starting file offset of this aggregator's write
@@ -1436,19 +1451,19 @@ static void ADIOI_LUSTRE_W_Exchange_data(
             ADIO_File            fd,
       const void                *buf,          /* user buffer */
             char                *write_buf,    /* OUT: internal buffer used to write in round iter */
-            char               **recv_buf,     /* OUT: internal buffer used to receive in round iter */
-            char               **send_buf_ptr, /* OUT: internal buffer used to send in round iter */
-            Flat_list           *flat_ftype,   /* IN/OUT: flatterned file view */
+            char               **recv_buf,     /* OUT: [nbufs] internal buffer used to receive in round iter */
+            char               **send_buf_ptr, /* OUT: [cb_nodes] internal buffer used to send in round iter */
+            Flat_list           *flat_ftype,   /* IN/OUT: flattened file view */
             Flat_list           *flat_btype,   /* IN/OUT: flattened buffer type */
-      const int                 *send_size,    /* send_size[i] is amount of this rank sent to aggregator i in round iter */
-      const int                 *recv_size,    /* recv_size[i] is amount of this rank recv from rank i in round iter */
+      const int                 *send_size,    /* [cb_nodes] send_size[i] is amount of this rank sent to aggregator i in round iter */
+      const int                 *recv_size,    /* [nprocs] recv_size[i] is amount of this rank recv from rank i in round iter */
             ADIO_Offset          range_off,    /* starting file offset of this process's write region in round iter */
             int                  range_size,   /* amount of this rank's write region in round iter */
-      const int                 *recv_count,   /* recv_count[i] is No. offset-length pairs received from rank i in round iter */
-      const int                 *start_pos,    /* start_pos[i] starting value of recv_curr_offlen_ptr[i] in round iter */
+      const int                 *recv_count,   /* [nprocs] recv_count[i] is No. offset-length pairs received from rank i in round iter */
+      const int                 *start_pos,    /* [nprocs] start_pos[i] starting value of recv_curr_offlen_ptr[i] in round iter */
       const ADIOI_Access        *others_req,   /* others_req[i] is rank i's write requests fall into this rank's file domain */
-      const ADIO_Offset         *buf_idx,      /* indices to user buffer for sending this rank's write data to aggregator i */
-            off_len_list        *srt_off_len,  /* OUT: list of writes by this rank in this round */
+      const ADIO_Offset         *buf_idx,      /* [cb_nodes] indices to user buffer for sending this rank's write data to aggregator i */
+            off_len_list        *srt_off_len,  /* OUT: list of writes by this aggregator in this round */
             disp_len_list       *send_list,    /* OUT: displacement-length pairs */
             disp_len_list       *recv_list,    /* OUT: displacement-length pairs */
             int                 *error_code)   /* OUT: */
@@ -1653,8 +1668,8 @@ static void ADIOI_LUSTRE_Fill_send_buffer(ADIO_File fd,
                                           char **self_buf,
                                           disp_len_list *send_list)
 {
-    /* this function is only called if buftype is not contig */
-    int i, q, send_size_rem=0, first_q=-1, isUserBuf;
+    /* this function is only called if buftype is not contiguous */
+    int q, send_size_rem=0, first_q=-1, isUserBuf;
     size_t size, copy_size;
     char *user_buf_ptr, *send_buf_ptr, *same_buf_ptr;
     ADIO_Offset off, len, rem_len, user_buf_idx;
@@ -1678,10 +1693,10 @@ int num_memcpy=0;
      *     sorted in a monotonically non-decreasing order.
      * flat_btype->len[i]: length of the ith pair
      * flat_btype->rnd stores the current number of data types being processed.
-     * flat_btype->idx: index to the offset-length pair currently being processed,
-     *     incremented each round.
-     * flat_btype->rem: amount of data in the pair that has not been copied over,
-     *     changed each round.
+     * flat_btype->idx: index to the offset-length pair currently being
+     *     processed, incremented each round.
+     * flat_btype->rem: amount of data in the pair that has not been copied
+     *     over, changed each round.
      * flat_btype->extent: extent size of user buffer data type.
      */
     user_buf_idx = flat_btype->extent * flat_btype->rnd
@@ -1690,18 +1705,20 @@ int num_memcpy=0;
                  - flat_btype->rem;
                  /* in case data left to be copied from previous round */
 
-    /* flat_ftype->count: the number of contiguous file segments this
+    /* flat_ftype->count: the number of noncontiguous file segments this
      *     rank writes to. Each segment i is described by flat_ftype->offs[i]
      *     and flat_ftype->len[i].
      * flat_ftype->idx: the index to the flat_ftype->offs[], flat_ftype->len[]
      *     that have been processed in the previous round.
-     * For each contiguous off-len pair in this rank's file view, pack write
-     * data into send buffers, send_buf[].
+     * The while loop below packs write data into send buffers, send_buf[],
+     * based on this rank's off-len pairs in its file view,
      */
-    for (i = flat_ftype->idx; i < flat_ftype->count; i++) {
-        off = flat_ftype->off[i];
-        rem_len = flat_ftype->len[i];
+    off     = flat_ftype->off[flat_ftype->idx]
+            + flat_ftype->len[flat_ftype->idx]
+            - flat_ftype->rem;
+    rem_len = flat_ftype->rem;
 
+    while (send_total_size > 0) {
         /* this off-len request may span to more than one I/O aggregator */
         while (rem_len != 0) {
             len = rem_len;
@@ -1782,7 +1799,8 @@ num_memcpy++;
                 }
                 else if (send_size_rem == 0 && isUserBuf == 0) {
                     /* flat_btype->rem > 0, send_buf[q] is full, and not using
-                     * user buf to send, copy the remaining delayed data */
+                     * user buf to send, copy the remaining delayed data
+                     */
                     memcpy(send_buf_ptr, user_buf_ptr, copy_size);
 #ifdef WKL_DEBUG
 num_memcpy++;
@@ -1812,18 +1830,27 @@ num_memcpy++;
             /* len is the amount of data copied */
             off += len;
             rem_len -= len;
-            flat_ftype->off[i] += len;
-            flat_ftype->len[i] -= len;
+            flat_ftype->rem -= len;
             send_total_size -= len;
-            if (send_total_size == 0) goto done;
+            if (send_total_size == 0) break;
         }
+
+        /* done with this off-len pair, move on to the next */
+        if (flat_ftype->rem == 0) {
+            if (flat_ftype->idx == flat_ftype->count-1) {
+                flat_ftype->idx = 0;
+                flat_ftype->rnd++;
+            }
+            else
+                flat_ftype->idx++;
+            flat_ftype->rem = flat_ftype->len[flat_ftype->idx];
+        }
+        off = flat_ftype->off[flat_ftype->idx];
+        rem_len = flat_ftype->rem;
     }
-done:
-    if (flat_ftype->len[i] == 0) i++;
-    flat_ftype->idx = i;
 
 #ifdef WKL_DEBUG
-if (num_memcpy> 0) printf("---- flat_ftype->count=%lld i=%d flat_btype->rnd=%lld flat_ftype->idx=%lld flat_btype->count=%lld num_memcpy=%d\n",flat_ftype->count,i,flat_btype->rnd,flat_ftype->idx,flat_btype->count,num_memcpy);
+if (num_memcpy> 0) printf("---- flat_ftype->count=%lld flat_btype->rnd=%lld flat_ftype->idx=%lld flat_btype->count=%lld num_memcpy=%d\n",flat_ftype->count,flat_btype->rnd,flat_ftype->idx,flat_btype->count,num_memcpy);
 #endif
 }
 
