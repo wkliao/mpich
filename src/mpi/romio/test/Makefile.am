@@ -24,7 +24,7 @@ CTESTS = simple async coll_test misc file_info excl \
      psimple error status noncontig_coll2 aggregation1 aggregation2 \
      async-multiple ordered_fp hindexed types_with_zeros darray_read syshints \
      fstype_prefix ghost_cell check_type_contig buf_noncontig pio_noncontig \
-     large_dtype atomicity_coll
+     large_dtype atomicity_coll ntimes_filetype
 
 SKIP_TESTS = perf coll_perf large_array large_file external32
 
