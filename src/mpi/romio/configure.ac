@@ -27,6 +27,7 @@ AC_CONFIG_MACRO_DIR([confdb])
 
 AM_INIT_AUTOMAKE([-Wall -Werror -Wno-portability-recursive foreign 1.12.3 silent-rules subdir-objects])
 AM_MAINTAINER_MODE([enable])
+AM_EXTRA_RECURSIVE_TARGETS([tests])
 
 # Need to figure out what CC we are going to use before calling AC_PROG_CC
 # if CC is not set and --with-mpi is set, use MPI C compiler under --with-mpi
