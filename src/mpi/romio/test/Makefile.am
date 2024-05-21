@@ -51,3 +51,7 @@ LOG_COMPILER = $(builddir)/parallel_run.sh
 SH_LOG_COMPILER =
 
 EXTRA_DIST = test_hintfile
+
+# build check targets but not invoke
+tests-local: all $(check_PROGRAMS)
+
