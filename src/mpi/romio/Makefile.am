@@ -240,3 +240,7 @@ SUFFIXES += .i
 .c.i:
 	$(COMPILE) -CC -E -o $@ $<
 
+tests-local: all
+
+.PHONY: tests
+
