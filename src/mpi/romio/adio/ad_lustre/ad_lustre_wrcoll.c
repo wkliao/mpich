@@ -588,6 +588,14 @@ void ADIOI_LUSTRE_WriteStridedColl(ADIO_File fd, const void *buf, MPI_Aint count
         st_end_all = (ADIO_Offset *) ADIOI_Malloc(nprocs * 2 * sizeof(ADIO_Offset));
         MPI_Allgather(st_end, 2, ADIO_OFFSET, st_end_all, 2, ADIO_OFFSET, fd->comm);
 
+        /* check if the request pattern is non-interleaved among all processes
+         * and each process writes a large amount. Here, "large" means a
+         * process's write range is > striping_factor * striping_unit. In this
+         * case, independent write will perform faster than collective.
+         */
+        int large_indv_req = 1;
+        MPI_Offset striping_range = fd->hints->striping_unit * fd->hints->striping_factor;
+
         /* Find the starting and ending file offsets of aggregate access region
          * and the number of ranks that have non-zero length write requests.
          * Also, check whether accesses are interleaved across ranks. Below is
@@ -603,6 +611,8 @@ void ADIOI_LUSTRE_WriteStridedColl(ADIO_File fd, const void *buf, MPI_Aint count
             }
             min_st_loc = st_end_all[i];
             max_end_loc = st_end_all[i + 1];
+            if (st_end_all[i+1] - st_end_all[i] < striping_range)
+                large_indv_req = 0;
             nonzero_nprocs = 1;
             i += 2;
             break;
@@ -621,6 +631,8 @@ void ADIOI_LUSTRE_WriteStridedColl(ADIO_File fd, const void *buf, MPI_Aint count
             min_st_loc = MPL_MIN(st_end_all[i], min_st_loc);
             max_end_loc = MPL_MAX(st_end_all[i + 1], max_end_loc);
             nonzero_nprocs++;
+            if (st_end_all[i+1] - st_end_all[i] < striping_range)
+                large_indv_req = 0;
         }
         ADIOI_Free(st_end_all);
 
@@ -633,6 +645,12 @@ void ADIOI_LUSTRE_WriteStridedColl(ADIO_File fd, const void *buf, MPI_Aint count
          */
         if (is_interleaved > 0)
             do_collect = 1;
+        else if (nprocs == 1)
+            do_collect = 0;
+        else if (large_indv_req && fd->hints->cb_nodes <= fd->hints->striping_factor)
+            /* do independent write, if every rank's write range >
+             * striping_range and writes are not interleaved in file space */
+            do_collect = 0;
         else
             /* This ADIOI_LUSTRE_Docollect() calls MPI_Allreduce(), so all
              * processes must participate.
