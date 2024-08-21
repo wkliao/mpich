@@ -1801,6 +1801,9 @@ if test "$FROM_MPICH" = no ; then
 
    AC_CHECK_FUNCS([MPL_aligned_alloc], [],
                   [AC_SEARCH_LIBS([MPL_aligned_alloc], [mpi mpl])])
+
+   AC_CHECK_FUNCS([MPIX_Type_iov], [],
+                  [AC_SEARCH_LIBS([MPIX_Type_iov], [mpi])])
 fi
 
 CPPFLAGS=$saved_CPPFLAGS
