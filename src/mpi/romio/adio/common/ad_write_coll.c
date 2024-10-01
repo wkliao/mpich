@@ -679,8 +679,13 @@ static void ADIOI_W_Exchange_data(ADIO_File fd, void *buf, char *write_buf,
         for (i = 0; i < nprocs; i++)
             if (send_size[i] && i != myrank) {
                 ADIOI_Assert(buf_idx[i] != -1);
+#if MPI_VERSION >= 4
                 MPI_Isend_c((char *) buf + buf_idx[i], send_size[i],
                             MPI_BYTE, i, ADIOI_COLL_TAG(i, iter), fd->comm, send_req + j);
+#else
+                MPI_Isend((char *) buf + buf_idx[i], send_size[i],
+                            MPI_BYTE, i, ADIOI_COLL_TAG(i, iter), fd->comm, send_req + j);
+#endif
                 j++;
                 buf_idx[i] += send_size[i];
             }
@@ -884,8 +889,13 @@ void ADIOI_Fill_send_buffer(ADIO_File fd, void *buf, ADIOI_Flatlist_node
                         curr_to_proc[p] += size;
                     ADIOI_BUF_COPY}
                     if (send_buf_idx[p] == send_size[p] && p != myrank) {
+#if MPI_VERSION >= 4
                         MPI_Isend_c(send_buf[p], send_size[p], MPI_BYTE, p,
                                     ADIOI_COLL_TAG(p, iter), fd->comm, &requests[jj++]);
+#else
+                        MPI_Isend(send_buf[p], send_size[p], MPI_BYTE, p,
+                                    ADIOI_COLL_TAG(p, iter), fd->comm, &requests[jj++]);
+#endif
                     }
                 } else {
                     curr_to_proc[p] += len;

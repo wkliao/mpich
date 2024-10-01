@@ -47,6 +47,31 @@ typedef struct FDSourceBufferState {
 
 } FDSourceBufferState;
 
+#define CAST_INT32(count, bklen, disp, dTypes, newType) {                    \
+    int kk, iCount, *iBklen;                                                 \
+    MPI_Aint *iDisp;                                                         \
+    ADIOI_Assert(count <= 2147483647); /* overflow 4-byte int */             \
+    iCount = (int)count;                                                     \
+    iBklen = (int*) ADIOI_Malloc(sizeof(int) * iCount);                      \
+    for (kk=0; kk<iCount; kk++) {                                            \
+        ADIOI_Assert(bklen[kk] <= 2147483647); /* overflow 4-byte int */     \
+        iBklen[kk] = (int)bklen[kk];                                         \
+    }                                                                        \
+    if (sizeof(MPI_Aint) != sizeof(MPI_Count)) {                             \
+        iDisp = (MPI_Aint*) ADIOI_Malloc(sizeof(MPI_Aint) * iCount);         \
+        for (kk=0; kk<iCount; kk++) {                                        \
+            ADIOI_Assert(disp[kk] <= 2147483647); /* overflow 4-byte int */  \
+            iDisp[kk] = (MPI_Aint)disp[kk];                                  \
+        }                                                                    \
+    }                                                                        \
+    else                                                                     \
+        iDisp = (MPI_Aint*)disp;                                             \
+    MPI_Type_create_struct(iCount, iBklen, iDisp, dTypes, newType);          \
+    ADIOI_Free(iBklen);                                                      \
+    if (sizeof(MPI_Aint) != sizeof(MPI_Count))                               \
+        ADIOI_Free(iDisp);                                                   \
+}
+
 static int ADIOI_OneSidedSetup(ADIO_File fd, int procs)
 {
     int ret = MPI_SUCCESS;
@@ -1208,7 +1233,12 @@ void ADIOI_OneSidedWriteAggregation(ADIO_File fd,
                                              write_buf_window);
                                 char *putSourceData = NULL;
                                 if (bufTypeIsContig) {
-                                    MPI_Put_c(((char *) buf) +
+#if MPI_VERSION >= 4
+                                    MPI_Put_c
+#else
+                                    MPI_Put
+#endif
+                                             (((char *) buf) +
                                               currentFDSourceBufferState
                                               [aggIter].sourceBufferOffset, bufferAmountToSend,
                                               MPI_BYTE, targetAggsForMyData[aggIter],
@@ -1223,7 +1253,12 @@ void ADIOI_OneSidedWriteAggregation(ADIO_File fd,
                                                                      bufferAmountToSend, 1,
                                                                      &currentFDSourceBufferState
                                                                      [aggIter], putSourceData);
-                                    MPI_Put_c(putSourceData, bufferAmountToSend, MPI_BYTE,
+#if MPI_VERSION >= 4
+                                    MPI_Put_c
+#else
+                                    MPI_Put
+#endif
+                                             (putSourceData, bufferAmountToSend, MPI_BYTE,
                                               targetAggsForMyData[aggIter],
                                               targetDisplacementToUseThisRound, bufferAmountToSend,
                                               MPI_BYTE, write_buf_window);
@@ -1288,13 +1323,25 @@ void ADIOI_OneSidedWriteAggregation(ADIO_File fd,
                     if (fd->romio_write_aggmethod == 2) {
 
                         MPI_Datatype sourceBufferDerivedDataType, targetBufferDerivedDataType;
+#if MPI_VERSION >= 4
                         MPI_Type_create_struct_c(targetAggContigAccessCount, targetAggBlockLengths,
                                                  sourceBufferDisplacements, targetAggDataTypes,
                                                  &sourceBufferDerivedDataType);
+#else
+                        CAST_INT32(targetAggContigAccessCount, targetAggBlockLengths,
+                                                 sourceBufferDisplacements, targetAggDataTypes,
+                                                 &sourceBufferDerivedDataType);
+#endif
                         MPI_Type_commit(&sourceBufferDerivedDataType);
+#if MPI_VERSION >= 4
                         MPI_Type_create_struct_c(targetAggContigAccessCount, targetAggBlockLengths,
                                                  targetAggDisplacements, targetAggDataTypes,
                                                  &targetBufferDerivedDataType);
+#else
+                        CAST_INT32(targetAggContigAccessCount, targetAggBlockLengths,
+                                                 targetAggDisplacements, targetAggDataTypes,
+                                                 &targetBufferDerivedDataType);
+#endif
                         MPI_Type_commit(&targetBufferDerivedDataType);
 
 #ifdef onesidedtrace
@@ -2537,7 +2584,12 @@ void ADIOI_OneSidedReadAggregation(ADIO_File fd,
                                              read_buf_window);
                                 char *getSourceData = NULL;
                                 if (bufTypeIsContig) {
-                                    MPI_Get_c(((char *) buf) +
+#if MPI_VERSION >= 4
+                                    MPI_Get_c
+#else
+                                    MPI_Get
+#endif
+                                             (((char *) buf) +
                                               currentFDSourceBufferState
                                               [aggIter].sourceBufferOffset, bufferAmountToRecv,
                                               MPI_BYTE, sourceAggsForMyData[aggIter],
@@ -2549,7 +2601,12 @@ void ADIOI_OneSidedReadAggregation(ADIO_File fd,
                                 } else {
                                     getSourceData =
                                         (char *) ADIOI_Malloc(bufferAmountToRecv * sizeof(char));
-                                    MPI_Get_c(getSourceData, bufferAmountToRecv, MPI_BYTE,
+#if MPI_VERSION >= 4
+                                    MPI_Get_c
+#else
+                                    MPI_Get
+#endif
+                                             (getSourceData, bufferAmountToRecv, MPI_BYTE,
                                               sourceAggsForMyData[aggIter],
                                               sourceDisplacementToUseThisRound, bufferAmountToRecv,
                                               MPI_BYTE, read_buf_window);
@@ -2602,13 +2659,25 @@ void ADIOI_OneSidedReadAggregation(ADIO_File fd,
                     if (fd->romio_read_aggmethod == 2) {
                         MPI_Datatype recvBufferDerivedDataType, sourceBufferDerivedDataType;
 
+#if MPI_VERSION >= 4
                         MPI_Type_create_struct_c(sourceAggContigAccessCount, sourceAggBlockLengths,
                                                  recvBufferDisplacements, sourceAggDataTypes,
                                                  &recvBufferDerivedDataType);
+#else
+                        CAST_INT32(sourceAggContigAccessCount, sourceAggBlockLengths,
+                                                 recvBufferDisplacements, sourceAggDataTypes,
+                                                 &recvBufferDerivedDataType);
+#endif
                         MPI_Type_commit(&recvBufferDerivedDataType);
+#if MPI_VERSION >= 4
                         MPI_Type_create_struct_c(sourceAggContigAccessCount, sourceAggBlockLengths,
                                                  sourceAggDisplacements, sourceAggDataTypes,
                                                  &sourceBufferDerivedDataType);
+#else
+                        CAST_INT32(sourceAggContigAccessCount, sourceAggBlockLengths,
+                                                 sourceAggDisplacements, sourceAggDataTypes,
+                                                 &sourceBufferDerivedDataType);
+#endif
                         MPI_Type_commit(&sourceBufferDerivedDataType);
 
                         if (sourceAggContigAccessCount > 0) {

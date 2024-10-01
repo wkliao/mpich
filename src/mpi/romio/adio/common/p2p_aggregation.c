@@ -361,7 +361,12 @@ void ADIOI_P2PContigWriteAggregation(ADIO_File fd,
 #endif
                 ADIOI_Assert(amountOfDataReqestedByTargetAgg[irecv] ==
                              bufferAmountsToSendThisRound[irecv]);
-                MPI_Isend_c(&((char *) buf)[sendBufferOffsetsThisRound[irecv]],
+#if MPI_VERSION >= 4
+                MPI_Isend_c
+#else
+                MPI_Isend
+#endif
+                           (&((char *) buf)[sendBufferOffsetsThisRound[irecv]],
                             bufferAmountsToSendThisRound[irecv], MPI_BYTE,
                             targetAggsForMyData[targetAggIndexesForMyDataThisRound[irecv]], 0,
                             fd->comm, &mpiSendDataToTargetAggRequest[irecv]);
@@ -373,7 +378,12 @@ void ADIOI_P2PContigWriteAggregation(ADIO_File fd,
                      i, bufferAmountsToSendThisRound[i], sendBufferOffsetsThisRound[i],
                      targetAggsForMyData[targetAggIndexesForMyDataThisRound[i]]);
 #endif
-                MPI_Isend_c(&((char *) buf)[sendBufferOffsetsThisRound[i]],
+#if MPI_VERSION >= 4
+                MPI_Isend_c
+#else
+                MPI_Isend
+#endif
+                           (&((char *) buf)[sendBufferOffsetsThisRound[i]],
                             bufferAmountsToSendThisRound[i], MPI_BYTE,
                             targetAggsForMyData[targetAggIndexesForMyDataThisRound[i]], 0, fd->comm,
                             &mpiSendDataToTargetAggRequest[i]);
@@ -401,7 +411,12 @@ void ADIOI_P2PContigWriteAggregation(ADIO_File fd,
                     ("receiving data from rank %d dataSizeGottenThisRoundPerProc is %d currentWBOffset is %d\n",
                      sourceProcsForMyData[i], dataSizeGottenThisRoundPerProc[i], currentWBOffset);
 #endif
-                MPI_Irecv_c(&((char *) write_buf)[currentWBOffset],
+#if MPI_VERSION >= 4
+                MPI_Irecv_c
+#else
+                MPI_Irecv
+#endif
+                           (&((char *) write_buf)[currentWBOffset],
                             dataSizeGottenThisRoundPerProc[i], MPI_BYTE, sourceProcsForMyData[i], 0,
                             fd->comm, &mpiRecvDataRequest[numDataRecvToWaitFor]);
                 mpiRequestMapPerProc[numDataRecvToWaitFor] = i;
@@ -920,7 +935,12 @@ void ADIOI_P2PContigReadAggregation(ADIO_File fd,
 
         /* the target procs get the data from the source aggs */
         for (i = 0; i < numSourceAggsThisRound; i++) {
-            MPI_Irecv_c(&((char *) buf)[recvBufferOffsetsThisRound[i]],
+#if MPI_VERSION >= 4
+            MPI_Irecv_c
+#else
+            MPI_Irecv
+#endif
+                       (&((char *) buf)[recvBufferOffsetsThisRound[i]],
                         bufferAmountsToGetThisRound[i], MPI_BYTE,
                         sourceAggsForMyData[sourceAggIndexesForMyDataThisRound[i]], 0, fd->comm,
                         &mpiRecvDataFromSourceAggsRequest[i]);
@@ -936,7 +956,12 @@ void ADIOI_P2PContigReadAggregation(ADIO_File fd,
 
             /* only send to target procs that will recv > 0 count data */
             if (dataSizeSentThisRoundPerProc[i] > 0) {
-                MPI_Isend_c(&((char *) read_buf)[currentWBOffset],
+#if MPI_VERSION >= 4
+                MPI_Isend_c
+#else
+                MPI_Isend
+#endif
+                           (&((char *) read_buf)[currentWBOffset],
                             dataSizeSentThisRoundPerProc[i],
                             MPI_BYTE, targetProcsForMyData[i], 0,
                             fd->comm, &mpiSendDataToTargetProcRequest[numTargetProcsSentThisRound]);

@@ -799,6 +799,31 @@ if (do_collect == 0) printf("%s --- SWITCH to independent write !!!\n",__func__)
     fd->fp_sys_posn = -1;       /* set it to null. */
 }
 
+#define CAST_INT32(count, bklen, disp, dType, newType) {                     \
+    int kk, iCount, *iBklen;                                                 \
+    MPI_Aint *iDisp;                                                         \
+    ADIOI_Assert(count <= 2147483647); /* overflow 4-byte int */             \
+    iCount = (int)count;                                                     \
+    iBklen = (int*) ADIOI_Malloc(sizeof(int) * iCount);                      \
+    for (kk=0; kk<iCount; kk++) {                                            \
+        ADIOI_Assert(bklen[kk] <= 2147483647); /* overflow 4-byte int */     \
+        iBklen[kk] = (int)bklen[kk];                                         \
+    }                                                                        \
+    if (sizeof(MPI_Aint) < sizeof(MPI_Count)) {                              \
+        iDisp = (MPI_Aint*) ADIOI_Malloc(sizeof(MPI_Aint) * iCount);         \
+        for (kk=0; kk<iCount; kk++) {                                        \
+            ADIOI_Assert(disp[kk] <= 2147483647); /* overflow 4-byte int */  \
+            iDisp[kk] = (MPI_Aint)disp[kk];                                  \
+        }                                                                    \
+    }                                                                        \
+    else                                                                     \
+        iDisp = (MPI_Aint*)disp;                                             \
+    MPI_Type_create_hindexed(iCount, iBklen, iDisp, dType, newType);         \
+    ADIOI_Free(iBklen);                                                      \
+    if (sizeof(MPI_Aint) != sizeof(MPI_Count))                               \
+        ADIOI_Free(iDisp);                                                   \
+}
+
 static
 void commit_comm_phase(ADIO_File      fd,
                        disp_len_list *send_list,  /* [cb_nodes] */
@@ -827,9 +852,15 @@ void commit_comm_phase(ADIO_File      fd,
         for (i = 0; i < nprocs; i++) {
             if (recv_list[i].count > 0) {
                 /* combine reqs using new datatype */
+#if MPI_VERSION >= 4
                 MPI_Type_create_hindexed_c(recv_list[i].count, recv_list[i].len,
                                            recv_list[i].disp, MPI_BYTE,
                                            &recvType);
+#else
+                CAST_INT32(recv_list[i].count, recv_list[i].len,
+                                           recv_list[i].disp, MPI_BYTE,
+                                           &recvType);
+#endif
                 MPI_Type_commit(&recvType);
 
                 if (fd->atomicity) /* Blocking Recv */
@@ -846,8 +877,13 @@ void commit_comm_phase(ADIO_File      fd,
     for (i = 0; i < fd->hints->cb_nodes; i++) {
         if (send_list[i].count > 0) {
             /* combine reqs using new datatype */
+#if MPI_VERSION >= 4
             MPI_Type_create_hindexed_c(send_list[i].count, send_list[i].len,
                                        send_list[i].disp, MPI_BYTE, &sendType);
+#else
+            CAST_INT32(send_list[i].count, send_list[i].len,
+                                       send_list[i].disp, MPI_BYTE, &sendType);
+#endif
             MPI_Type_commit(&sendType);
 
             MPI_Issend(MPI_BOTTOM, 1, sendType, fd->hints->ranklist[i], 0,
