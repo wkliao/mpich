@@ -974,11 +974,6 @@ static void ADIOI_R_Iexchange_data_recv(ADIOI_NBC_Request * nbc_req, int *error_
 {
     ADIOI_R_Iexchange_data_vars *vars = nbc_req->data.rd.red_vars;
     ADIO_File fd = vars->fd;
-    MPI_Count *send_size = vars->send_size;
-    MPI_Count *recv_size = vars->recv_size;
-    MPI_Count *count = vars->count;
-    MPI_Count *start_pos = vars->start_pos;
-    MPI_Count *partial_send = vars->partial_send;
     int nprocs = vars->nprocs;
     ADIOI_Access *others_req = vars->others_req;
     MPI_Aint *buf_idx = vars->buf_idx;
@@ -986,6 +981,33 @@ static void ADIOI_R_Iexchange_data_recv(ADIOI_NBC_Request * nbc_req, int *error_
     int i, j, nprocs_recv, nprocs_send;
     char **recv_buf = NULL;
     MPI_Datatype send_type;
+
+#if MPI_VERSION >= 4
+    MPI_Count *send_size = vars->send_size;
+    MPI_Count *recv_size = vars->recv_size;
+    MPI_Count *count = vars->count;
+    MPI_Count *start_pos = vars->start_pos;
+    MPI_Count *partial_send = vars->partial_send;
+#else
+    int *send_size, *recv_size, *count, *start_pos, *partial_send;
+    send_size = (int*) ADIOI_Malloc(sizeof(int) * nprocs * 5);
+    recv_size = send_size + nprocs;
+    count = recv_size + nprocs;
+    start_pos = count + nprocs;
+    partial_send = start_pos + nprocs;
+    for (i=0; i<nprocs; i++) {
+        ADIOI_Assert(vars->send_size[i] <= 2147483647); /* overflow 4-byte int */
+        send_size[i] = vars->send_size[i];
+        ADIOI_Assert(vars->recv_size[i] <= 2147483647); /* overflow 4-byte int */
+        recv_size[i] = vars->recv_size[i];
+        ADIOI_Assert(vars->count[i] <= 2147483647); /* overflow 4-byte int */
+        count[i] = vars->count[i];
+        ADIOI_Assert(vars->start_pos[i] <= 2147483647); /* overflow 4-byte int */
+        start_pos[i] = vars->start_pos[i];
+        ADIOI_Assert(vars->partial_send[i] <= 2147483647); /* overflow 4-byte int */
+        partial_send[i] = vars->partial_send[i];
+    }
+#endif
 
     nprocs_recv = 0;
     for (i = 0; i < nprocs; i++)
@@ -1014,8 +1036,13 @@ static void ADIOI_R_Iexchange_data_recv(ADIOI_NBC_Request * nbc_req, int *error_
         j = 0;
         for (i = 0; i < nprocs; i++)
             if (recv_size[i]) {
-                MPI_Irecv_c(((char *) vars->buf) + buf_idx[i], recv_size[i],
-                            MPI_BYTE, i, ADIOI_COLL_TAG(i, vars->iter), fd->comm, vars->req2 + j);
+#if MPI_VERSION >= 4
+                MPI_Irecv_c
+#else
+                MPI_Irecv
+#endif
+                (((char *) vars->buf) + buf_idx[i], recv_size[i],
+                 MPI_BYTE, i, ADIOI_COLL_TAG(i, vars->iter), fd->comm, vars->req2 + j);
                 j++;
                 buf_idx[i] += recv_size[i];
             }
@@ -1030,8 +1057,13 @@ static void ADIOI_R_Iexchange_data_recv(ADIOI_NBC_Request * nbc_req, int *error_
         j = 0;
         for (i = 0; i < nprocs; i++)
             if (recv_size[i]) {
-                MPI_Irecv_c(recv_buf[i], recv_size[i], MPI_BYTE, i,
-                            ADIOI_COLL_TAG(i, vars->iter), fd->comm, vars->req2 + j);
+#if MPI_VERSION >= 4
+                MPI_Irecv_c
+#else
+                MPI_Irecv
+#endif
+                (recv_buf[i], recv_size[i], MPI_BYTE, i,
+                 ADIOI_COLL_TAG(i, vars->iter), fd->comm, vars->req2 + j);
                 j++;
 #ifdef RDCOLL_DEBUG
                 DBG_FPRINTF(stderr, "node %d, recv_size %lld, tag %d \n",
@@ -1074,6 +1106,10 @@ static void ADIOI_R_Iexchange_data_recv(ADIOI_NBC_Request * nbc_req, int *error_
     }
 
     ADIOI_R_Iexchange_data_fill(nbc_req, error_code);
+
+#if MPI_VERSION < 4
+    ADIOI_Free(send_size);
+#endif
 }
 
 static void ADIOI_R_Iexchange_data_fill(ADIOI_NBC_Request * nbc_req, int *error_code)

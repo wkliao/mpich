@@ -814,8 +814,13 @@ static void ADIOI_R_Exchange_data(ADIO_File fd, void *buf, ADIOI_Flatlist_node
     if (buftype_is_contig) {
         for (i = 0; i < nprocs; i++) {
             if (recv_size[i]) {
+#if MPI_VERSION >= 4
                 MPI_Irecv_c(((char *) buf) + buf_idx[i], recv_size[i],
                             MPI_BYTE, i, ADIOI_COLL_TAG(i, iter), fd->comm, requests + j);
+#else
+                MPI_Irecv(((char *) buf) + buf_idx[i], recv_size[i],
+                            MPI_BYTE, i, ADIOI_COLL_TAG(i, iter), fd->comm, requests + j);
+#endif
                 j++;
                 buf_idx[i] += recv_size[i];
             }
@@ -830,8 +835,13 @@ static void ADIOI_R_Exchange_data(ADIO_File fd, void *buf, ADIOI_Flatlist_node
         j = 0;
         for (i = 0; i < nprocs; i++) {
             if (recv_size[i]) {
+#if MPI_VERSION >= 4
                 MPI_Irecv_c(recv_buf[i], recv_size[i], MPI_BYTE, i,
                             ADIOI_COLL_TAG(i, iter), fd->comm, requests + j);
+#else
+                MPI_Irecv(recv_buf[i], recv_size[i], MPI_BYTE, i,
+                            ADIOI_COLL_TAG(i, iter), fd->comm, requests + j);
+#endif
                 j++;
 #ifdef RDCOLL_DEBUG
                 DBG_FPRINTF(stderr, "node %d, recv_size %lld, tag %d \n",
@@ -885,8 +895,13 @@ static void ADIOI_R_Exchange_data(ADIO_File fd, void *buf, ADIOI_Flatlist_node
         j = 0;
         for (i = 0; i < nprocs; i++) {
             if (recv_size[i]) {
+#if MPI_VERSION >= 4
                 MPI_Count count_recved;
                 MPI_Get_count_c(&statuses[j], MPI_BYTE, &count_recved);
+#else
+                int count_recved;
+                MPI_Get_count(&statuses[j], MPI_BYTE, &count_recved);
+#endif
                 *actual_recved_bytes += count_recved;
                 j++;
             }

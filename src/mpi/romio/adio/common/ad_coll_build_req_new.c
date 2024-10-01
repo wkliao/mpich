@@ -26,6 +26,31 @@ static char *off_type_name[MAX_OFF_TYPE] = { "TEMP_OFFSETS",
 };
 #endif
 
+#define CAST_INT32(count, bklen, disp, dType, newType) {                     \
+    int kk, iCount, *iBklen;                                                 \
+    MPI_Aint *iDisp;                                                         \
+    ADIOI_Assert(count <= 2147483647); /* overflow 4-byte int */             \
+    iCount = (int)count;                                                     \
+    iBklen = (int*) ADIOI_Malloc(sizeof(int) * iCount);                      \
+    for (kk=0; kk<iCount; kk++) {                                            \
+        ADIOI_Assert(bklen[kk] <= 2147483647); /* overflow 4-byte int */     \
+        iBklen[kk] = (int)bklen[kk];                                         \
+    }                                                                        \
+    if (sizeof(MPI_Aint) != sizeof(MPI_Count)) {                             \
+        iDisp = (MPI_Aint*) ADIOI_Malloc(sizeof(MPI_Aint) * iCount);         \
+        for (kk=0; kk<iCount; kk++) {                                        \
+            ADIOI_Assert(disp[kk] <= 2147483647); /* overflow 4-byte int */  \
+            iDisp[kk] = (MPI_Aint)disp[kk];                                  \
+        }                                                                    \
+    }                                                                        \
+    else                                                                     \
+        iDisp = (MPI_Aint*)disp;                                             \
+    MPI_Type_create_hindexed(iCount, iBklen, iDisp, dType, newType);         \
+    ADIOI_Free(iBklen);                                                      \
+    if (sizeof(MPI_Aint) != sizeof(MPI_Count))                               \
+        ADIOI_Free(iDisp);                                                   \
+}
+
 /* Simple function to return the size of the view_state. */
 static inline ADIO_Offset view_state_get_cur_sz(view_state * tmp_view_state_p, int op_type)
 {
@@ -704,8 +729,13 @@ int ADIOI_Build_agg_reqs(ADIO_File fd, int rw_type, int nprocs,
     /* Create all the client and aggregate MPI_Datatypes */
     for (i = 0; i < nprocs; i++) {
         if (client_comm_sz_arr[i] > 0) {
+#if MPI_VERSION >= 4
             MPI_Type_create_hindexed_c(client_ol_ct_arr[i], client_blk_arr[i],
                                        client_disp_arr[i], MPI_BYTE, &(client_comm_dtype_arr[i]));
+#else
+            CAST_INT32(client_ol_ct_arr[i], client_blk_arr[i], client_disp_arr[i],
+                       MPI_BYTE, &(client_comm_dtype_arr[i]));
+#endif
             MPI_Type_commit(&(client_comm_dtype_arr[i]));
         } else {
             client_comm_dtype_arr[i] = MPI_BYTE;
@@ -718,9 +748,17 @@ int ADIOI_Build_agg_reqs(ADIO_File fd, int rw_type, int nprocs,
 
     if (agg_ol_ct > 0) {
         if (agg_ol_ct == 1)
+#if MPI_VERSION >= 4
             MPI_Type_contiguous_c(agg_blk_arr[0], MPI_BYTE, agg_dtype_p);
+#else
+            MPI_Type_contiguous(agg_blk_arr[0], MPI_BYTE, agg_dtype_p);
+#endif
         else if (agg_ol_ct > 1)
+#if MPI_VERSION >= 4
             MPI_Type_create_hindexed_c(agg_ol_ct, agg_blk_arr, agg_disp_arr, MPI_BYTE, agg_dtype_p);
+#else
+            CAST_INT32(agg_ol_ct, agg_blk_arr, agg_disp_arr, MPI_BYTE, agg_dtype_p);
+#endif
 
         MPI_Type_commit(agg_dtype_p);
 
@@ -990,8 +1028,13 @@ int ADIOI_Build_client_reqs(ADIO_File fd,
     /* Create all the aggregator MPI_Datatypes */
     for (i = 0; i < nprocs; i++) {
         if (agg_comm_sz_arr[i] > 0) {
+#if MPI_VERSION >= 4
             MPI_Type_create_hindexed_c(agg_ol_ct_arr[i], agg_blk_arr[i],
                                        agg_disp_arr[i], MPI_BYTE, &(agg_comm_dtype_arr[i]));
+#else
+            CAST_INT32(agg_ol_ct_arr[i], agg_blk_arr[i],
+                       agg_disp_arr[i], MPI_BYTE, &(agg_comm_dtype_arr[i]));
+#endif
             MPI_Type_commit(&(agg_comm_dtype_arr[i]));
         } else {
             agg_comm_dtype_arr[i] = MPI_BYTE;
@@ -1689,8 +1732,12 @@ int ADIOI_Build_client_req(ADIO_File fd,
 
     /* Create the aggregator MPI_Datatype */
     if (agg_comm_sz > 0) {
+#if MPI_VERSION >= 4
         MPI_Type_create_hindexed_c(agg_ol_ct, agg_blk_arr, agg_disp_arr, MPI_BYTE,
                                    agg_comm_dtype_p);
+#else
+        CAST_INT32(agg_ol_ct, agg_blk_arr, agg_disp_arr, MPI_BYTE, agg_comm_dtype_p);
+#endif
         MPI_Type_commit(agg_comm_dtype_p);
     } else {
         *agg_comm_dtype_p = MPI_BYTE;

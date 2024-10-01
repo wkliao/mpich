@@ -140,6 +140,8 @@ int main(int argc, char **argv)
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
     MPI_Comm_size(MPI_COMM_WORLD, &nprocs);
 
+#if MPI_VERSION >= 4
+
     /* default values */
     len = LEN;
     gap = GAP;
@@ -513,6 +515,7 @@ int main(int argc, char **argv)
     CHECK_MPIO_ERROR("MPI_File_close");
 
     free(buf);
+#endif
 
 err_out:
     MPI_Finalize();
