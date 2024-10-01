@@ -503,15 +503,28 @@ void ADIOI_Calc_others_req(ADIO_File fd, MPI_Count count_my_req_procs,
             /* send to self uses memcpy()C, here others_req[i].count == my_req[i].count */
             memcpy(others_req[i].offsets, my_req[i].offsets,
                    2 * my_req[i].count * sizeof(ADIO_Offset));
-        else
+        else {
+#if MPI_VERSION >= 4
             MPI_Irecv_c(others_req[i].offsets, 2 * others_req[i].count,
                         ADIO_OFFSET, i, i + myrank, fd->comm, &requests[j++]);
+#else
+            ADIOI_Assert(others_req[i].count * 2 <= 2147483647); /* overflow 4-byte int */
+            MPI_Irecv(others_req[i].offsets, (int)others_req[i].count * 2,
+                        ADIO_OFFSET, i, i + myrank, fd->comm, &requests[j++]);
+#endif
+        }
     }
 
     for (i = 0; i < nprocs; i++) {
         if (my_req[i].count && i != myrank) {
+#if MPI_VERSION >= 4
             MPI_Isend_c(my_req[i].offsets, 2 * my_req[i].count,
                         ADIO_OFFSET, i, i + myrank, fd->comm, &requests[j++]);
+#else
+            ADIOI_Assert(my_req[i].count * 2 <= 2147483647); /* overflow 4-byte int */
+            MPI_Isend(my_req[i].offsets, (int)my_req[i].count * 2,
+                      ADIO_OFFSET, i, i + myrank, fd->comm, &requests[j++]);
+#endif
         }
     }
 
@@ -633,15 +646,27 @@ void ADIOI_Icalc_others_req_main(ADIOI_NBC_Request * nbc_req, int *error_code)
     j = 0;
     for (i = 0; i < nprocs; i++) {
         if (others_req[i].count) {
+#if MPI_VERSION >= 4
             MPI_Irecv_c(others_req[i].offsets, 2 * others_req[i].count,
                         ADIO_OFFSET, i, i + myrank, fd->comm, &vars->req2[j++]);
+#else
+            ADIOI_Assert(others_req[i].count * 2 <= 2147483647); /* overflow 4-byte int */
+            MPI_Irecv(others_req[i].offsets, (int)others_req[i].count * 2,
+                      ADIO_OFFSET, i, i + myrank, fd->comm, &vars->req2[j++]);
+#endif
         }
     }
 
     for (i = 0; i < nprocs; i++) {
         if (my_req[i].count) {
+#if MPI_VERSION >= 4
             MPI_Isend_c(my_req[i].offsets, 2 * my_req[i].count,
                         ADIO_OFFSET, i, i + myrank, fd->comm, &vars->req2[j++]);
+#else
+            ADIOI_Assert(others_req[i].count * 2 <= 2147483647); /* overflow 4-byte int */
+            MPI_Isend(my_req[i].offsets, (int)my_req[i].count * 2,
+                      ADIO_OFFSET, i, i + myrank, fd->comm, &vars->req2[j++]);
+#endif
         }
     }
 

@@ -68,7 +68,12 @@ void ADIOI_Calc_file_realms(ADIO_File fd, ADIO_Offset min_st_offset, ADIO_Offset
             file_realm_types = fd->file_realm_types;
         }
         *file_realm_st_offs = min_st_offset;
+#if MPI_VERSION >= 4
         MPI_Type_contiguous_c((max_end_offset - min_st_offset + 1), MPI_BYTE, file_realm_types);
+#else
+        ADIOI_Assert(max_end_offset - min_st_offset + 1 <= 2147483647); /* overflow 4-byte int */
+        MPI_Type_contiguous((max_end_offset - min_st_offset + 1), MPI_BYTE, file_realm_types);
+#endif
         MPI_Type_commit(file_realm_types);
         ADIOI_Flatten_and_find(*file_realm_types);
     } else if (fd->file_realm_st_offs == NULL) {
@@ -217,7 +222,12 @@ void ADIOI_Create_fr_simpletype(MPI_Count size, int nprocs_for_coll, MPI_Datatyp
     lb = 0;
     ub = size * nprocs_for_coll;
 
+#if MPI_VERSION >= 4
     MPI_Type_contiguous_c(size, MPI_BYTE, &type);
+#else
+    ADIOI_Assert(size <= 2147483647); /* overflow 4-byte int */
+    MPI_Type_contiguous(size, MPI_BYTE, &type);
+#endif
     MPI_Type_create_resized(type, lb, ub, simpletype);
 
     MPI_Type_free(&type);

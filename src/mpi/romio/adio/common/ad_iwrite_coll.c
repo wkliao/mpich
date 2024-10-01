@@ -1139,8 +1139,6 @@ static void ADIOI_W_Iexchange_data_send(ADIOI_NBC_Request * nbc_req, int *error_
     ADIOI_W_Iexchange_data_vars *vars = nbc_req->data.wr.wed_vars;
     ADIO_File fd = vars->fd;
     void *buf = vars->buf;
-    MPI_Count *send_size = vars->send_size;
-    MPI_Count *recv_size = vars->recv_size;
     int nprocs = vars->nprocs;
     int myrank = vars->myrank;
     int iter = vars->iter;
@@ -1152,6 +1150,22 @@ static void ADIOI_W_Iexchange_data_send(ADIOI_NBC_Request * nbc_req, int *error_
     int i, j;
     int nprocs_send;
     char **send_buf = NULL;
+
+#if MPI_VERSION >= 4
+    MPI_Count *send_size = vars->send_size;
+    MPI_Count *recv_size = vars->recv_size;
+#else
+    int *send_size, *recv_size;
+    send_size = (int*) ADIOI_Malloc(sizeof(int) * nprocs * 2);
+    recv_size = send_size + nprocs;
+    for (i=0; i<nprocs; i++) {
+        ADIOI_Assert(vars->send_size[i] <= 2147483647); /* overflow 4-byte int */
+        send_size[i] = vars->send_size[i];
+        ADIOI_Assert(vars->recv_size[i] <= 2147483647); /* overflow 4-byte int */
+        recv_size[i] = vars->recv_size[i];
+    }
+#endif
+
 
     nprocs_send = 0;
     for (i = 0; i < nprocs; i++)
@@ -1201,8 +1215,13 @@ static void ADIOI_W_Iexchange_data_send(ADIOI_NBC_Request * nbc_req, int *error_
         j = 0;
         for (i = 0; i < nprocs; i++)
             if (send_size[i] && i != myrank) {
-                MPI_Issend_c((char *) buf + buf_idx[i], send_size[i], MPI_BYTE,
-                             i, ADIOI_COLL_TAG(i, iter), fd->comm, &vars->send_req[j++]);
+#if MPI_VERSION >= 4
+                MPI_Issend_c
+#else
+                MPI_Issend
+#endif
+                ((char *) buf + buf_idx[i], send_size[i], MPI_BYTE,
+                 i, ADIOI_COLL_TAG(i, iter), fd->comm, &vars->send_req[j++]);
                 buf_idx[i] += send_size[i];
             }
     } else if (nprocs_send) {
@@ -1217,7 +1236,7 @@ static void ADIOI_W_Iexchange_data_send(ADIOI_NBC_Request * nbc_req, int *error_
         vars->send_buf = send_buf;
 
         ADIOI_Fill_send_buffer(fd, buf, vars->flat_buf, send_buf,
-                               vars->offset_list, vars->len_list, send_size,
+                               vars->offset_list, vars->len_list, vars->send_size,
                                vars->send_req,
                                vars->sent_to_proc, nprocs, myrank,
                                vars->contig_access_count,
@@ -1261,6 +1280,10 @@ static void ADIOI_W_Iexchange_data_send(ADIOI_NBC_Request * nbc_req, int *error_
     }
 
     ADIOI_W_Iexchange_data_wait(nbc_req, error_code);
+
+#if MPI_VERSION < 4
+    ADIOI_Free(send_size);
+#endif
 }
 
 static void ADIOI_W_Iexchange_data_wait(ADIOI_NBC_Request * nbc_req, int *error_code)

@@ -102,6 +102,31 @@ static int type_create_contiguous_x(MPI_Count count, MPI_Datatype oldtype, MPI_D
     return MPI_SUCCESS;
 }
 
+#define CAST_INT32(func_name, count, bklen, disp, dType, newType) {          \
+    int kk, iCount, *iBklen;                                                 \
+    MPI_Aint *iDisp;                                                         \
+    ADIOI_Assert(count <= 2147483647); /* overflow 4-byte int */             \
+    iCount = (int)count;                                                     \
+    iBklen = (int*) ADIOI_Malloc(sizeof(int) * iCount);                      \
+    for (kk=0; kk<iCount; kk++) {                                            \
+        ADIOI_Assert(bklen[kk] <= 2147483647); /* overflow 4-byte int */     \
+        iBklen[kk] = (int)bklen[kk];                                         \
+    }                                                                        \
+    if (sizeof(MPI_Aint) != sizeof(MPI_Count)) {                             \
+        iDisp = (MPI_Aint*) ADIOI_Malloc(sizeof(MPI_Aint) * iCount);         \
+        for (kk=0; kk<iCount; kk++) {                                        \
+            ADIOI_Assert(disp[kk] <= 2147483647); /* overflow 4-byte int */  \
+            iDisp[kk] = (MPI_Aint)disp[kk];                                  \
+        }                                                                    \
+    }                                                                        \
+    else                                                                     \
+        iDisp = (MPI_Aint*)disp;                                             \
+    ret = func_name(iCount, iBklen, iDisp, dType, newType);                  \
+    ADIOI_Free(iBklen);                                                      \
+    if (sizeof(MPI_Aint) != sizeof(MPI_Count))                               \
+        ADIOI_Free(iDisp);                                                   \
+}
+
 /* like MPI_Type_create_hindexed, except array_of_lengths can be a larger datatype.
  *
  * Hindexed provides 'count' pairs of (displacement, length), but what if
@@ -145,13 +170,21 @@ int ADIOI_Type_create_hindexed_x(MPI_Count count,
     }
 
     if (is_big) {
+#if MPI_VERSION >= 4
         ret = MPI_Type_create_struct_c(count, blocklens, array_of_displacements, types, newtype);
+#else
+        CAST_INT32(MPI_Type_create_struct, count, blocklens, array_of_displacements, types, newtype);
+#endif
         for (i = 0; i < count; i++)
             if (types[i] != oldtype)
                 MPI_Type_free(&(types[i]));
     } else {
+#if MPI_VERSION >= 4
         ret =
             MPI_Type_create_hindexed_c(count, blocklens, array_of_displacements, oldtype, newtype);
+#else
+        CAST_INT32(MPI_Type_create_hindexed, count, blocklens, array_of_displacements, oldtype, newtype);
+#endif
     }
     ADIOI_Free(types);
     ADIOI_Free(blocklens);

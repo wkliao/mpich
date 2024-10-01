@@ -15,19 +15,34 @@
 int MPIU_write_external32_conversion_fn(const void *userbuf, MPI_Datatype datatype,
                                         MPI_Count count, void *filebuf)
 {
+#if MPI_VERSION >= 4
     MPI_Count position_i = 0;
     MPI_Count position = 0;
     MPI_Count bytes = 0;
+#else
+    int position_i = 0;
+    MPI_Aint position = 0;
+    MPI_Aint bytes = 0;
+#endif
     int mpi_errno = MPI_SUCCESS;
     int is_contig = 0;
 
+#if MPI_VERSION < 4
+    ADIOI_Assert(count <= 2147483647); /* overflow 4-byte int */
+#endif
+
     ADIOI_Datatype_iscontig(datatype, &is_contig);
+
+#if MPI_VERSION >= 4
     mpi_errno = MPI_Pack_external_size_c("external32", count, datatype, &bytes);
+#else
+    mpi_errno = MPI_Pack_external_size("external32", count, datatype, &bytes);
+#endif
     if (mpi_errno != MPI_SUCCESS)
         goto fn_exit;
 
     if (is_contig) {
-#if MPI_VERSION >= 3
+#if MPI_VERSION >= 4
         mpi_errno = MPI_Pack_external_c("external32", userbuf, count,
                                         datatype, filebuf, bytes, &position);
 #else
@@ -43,7 +58,7 @@ int MPIU_write_external32_conversion_fn(const void *userbuf, MPI_Datatype dataty
             mpi_errno = MPI_ERR_NO_MEM;
             goto fn_exit;
         }
-#if MPI_VERSION >= 3
+#if MPI_VERSION >= 4
         mpi_errno = MPI_Pack_external_c("external32", userbuf, count,
                                         datatype, tmp_buf, bytes, &position);
 #else
@@ -55,8 +70,13 @@ int MPIU_write_external32_conversion_fn(const void *userbuf, MPI_Datatype dataty
             goto fn_exit;
         }
 
+#if MPI_VERSION >= 4
         mpi_errno = MPI_Unpack_c(tmp_buf, bytes, &position_i, filebuf, count,
                                  datatype, MPI_COMM_WORLD);
+#else
+        mpi_errno = MPI_Unpack(tmp_buf, bytes, &position_i, filebuf, count,
+                               datatype, MPI_COMM_WORLD);
+#endif
         if (mpi_errno != MPI_SUCCESS) {
             ADIOI_Free(tmp_buf);
             goto fn_exit;
@@ -71,20 +91,40 @@ int MPIU_write_external32_conversion_fn(const void *userbuf, MPI_Datatype dataty
 int MPIU_read_external32_conversion_fn(void *userbuf, MPI_Datatype datatype,
                                        MPI_Count count, void *filebuf)
 {
+#if MPI_VERSION >= 4
     MPI_Count position_i = 0;
     MPI_Count position = 0;
     MPI_Count bytes = 0;
+#else
+    int position_i = 0;
+    MPI_Aint position = 0;
+    MPI_Aint bytes = 0;
+#endif
     int mpi_errno = MPI_SUCCESS;
     int is_contig = 0;
 
+#if MPI_VERSION < 4
+    ADIOI_Assert(count <= 2147483647); /* overflow 4-byte int */
+#endif
+
     ADIOI_Datatype_iscontig(datatype, &is_contig);
+
+#if MPI_VERSION >= 4
     mpi_errno = MPI_Pack_external_size_c("external32", count, datatype, &bytes);
+#else
+    mpi_errno = MPI_Pack_external_size("external32", count, datatype, &bytes);
+#endif
     if (mpi_errno != MPI_SUCCESS)
         goto fn_exit;
 
     if (is_contig) {
+#if MPI_VERSION >= 4
         mpi_errno = MPI_Unpack_external_c("external32", filebuf, bytes,
                                           &position, userbuf, count, datatype);
+#else
+        mpi_errno = MPI_Unpack_external("external32", filebuf, bytes,
+                                        &position, userbuf, count, datatype);
+#endif
         if (mpi_errno != MPI_SUCCESS)
             goto fn_exit;
     } else {
@@ -96,14 +136,23 @@ int MPIU_read_external32_conversion_fn(void *userbuf, MPI_Datatype datatype,
         }
 
         mpi_errno =
+#if MPI_VERSION >= 4
             MPI_Pack_c(filebuf, count, datatype, tmp_buf, bytes, &position_i, MPI_COMM_WORLD);
+#else
+            MPI_Pack(filebuf, count, datatype, tmp_buf, bytes, &position_i, MPI_COMM_WORLD);
+#endif
         if (mpi_errno != MPI_SUCCESS) {
             ADIOI_Free(tmp_buf);
             goto fn_exit;
         }
 
+#if MPI_VERSION >= 4
         mpi_errno = MPI_Unpack_external_c("external32", tmp_buf, bytes,
                                           &position, userbuf, count, datatype);
+#else
+        mpi_errno = MPI_Unpack_external("external32", tmp_buf, bytes,
+                                        &position, userbuf, count, datatype);
+#endif
         if (mpi_errno != MPI_SUCCESS) {
             ADIOI_Free(tmp_buf);
             goto fn_exit;
