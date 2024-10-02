@@ -684,6 +684,27 @@ if (do_collect == 0) printf("%s --- SWITCH to independent write !!!\n",__func__)
         return;
     }
 
+    /* Now we are using collective I/O (two-phase I/O strategy) */
+
+    /* adjust striping_unit when striping_factor is twice or more than the
+     * number of compute nodes. Note cb_node is set to at least
+     * striping_factor, if nprocs >= striping_factor. Adjustment below is to
+     * let each aggregator to write to two or more consecutive OSTs, which can
+     * most likely improve the performance. This will still yield an effect of
+     * any one OST receiving write requests from aggregators running on only
+     * one compute node.
+     */
+    int orig_striping_unit = fd->hints->striping_unit;
+    if (fd->hints->striping_factor >= fd->num_nodes * 2) {
+        fd->hints->striping_unit *= (fd->hints->striping_factor / fd->num_nodes);
+#ifdef WKL_DEBUG
+        if (myrank == 0)
+            printf("Warning: %s line %d: Change striping_unit from %d to %d\n",
+                   __func__, __LINE__, orig_striping_unit, fd->hints->striping_unit);
+#endif
+    }
+
+
     if ((fd->romio_write_aggmethod == 1) || (fd->romio_write_aggmethod == 2)) {
         /* If user has set hint ROMIO_WRITE_AGGMETHOD env variable to to use a
          * one-sided aggregation method then do that at this point instead of
@@ -747,6 +768,9 @@ if (do_collect == 0) printf("%s --- SWITCH to independent write !!!\n",__func__)
         ADIOI_Free(my_req[0].offsets);
         ADIOI_Free(my_req);
     }
+
+    /* restore the original striping_unit */
+    fd->hints->striping_unit = orig_striping_unit;
 
     if (flat_fview.off != NULL)
         ADIOI_Free(flat_fview.off);
