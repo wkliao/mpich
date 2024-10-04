@@ -54,6 +54,8 @@ elif test "x$exe_name" = xpio_noncontig ; then
    $mpirun -np 2 ${valgrind_opt} $1 -n 4 -c 2048 -f $FILENAME
 elif test "x$exe_name" = xlarge_dtype ; then
    $mpirun -np 2 ${valgrind_opt} $1 -n 4 -l 16 -f $FILENAME
+elif test "x$exe_name" = xnvars ; then
+   $mpirun -np 2 ${valgrind_opt} $1 -r -f $FILENAME
 else
    $mpirun -np 4 ${valgrind_opt} $1 -f $FILENAME
 fi
