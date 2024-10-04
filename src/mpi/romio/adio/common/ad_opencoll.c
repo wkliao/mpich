@@ -447,18 +447,22 @@ static int construct_aggr_list(ADIO_File fd, int root, int *error_code)
         else { /* striping_factor <= nprocs */
             /* Select striping_factor processes to be I/O aggregators */
 
-// if (fd->hints->cb_nodes == 0) /* hint cb_nodes is not set by user */
-if (fd->hints->cb_nodes == 0 || fd->access_mode & ADIO_RDONLY) {
-/* for now, do not mess up ranklist for read operations */
-// printf("ADIO_RDONLY file %s\n",fd->filename);
-                num_aggr = fd->hints->striping_factor;
-/* for now, do not accept user hint to set ranklist for read operations */
-
-}
-            else if (fd->hints->cb_nodes <= striping_factor)
-                /* User has set hint cb_nodes and cb_nodes <= striping_factor.
-                 * Ignore user's hint and set cb_nodes to striping_factor. */
+            if (fd->hints->cb_nodes == 0 || fd->access_mode & ADIO_RDONLY) {
+                /* hint cb_nodes is not set by user and this file is opened for
+                 * read only. Because collective read is using a different file
+                 * domain partitioning strategy, for now we do not mess up
+                 * ranklist for read operations and do not accept user hint to
+                 * set ranklist for read operations
+                 */
                 num_aggr = striping_factor;
+            }
+            else if (fd->hints->cb_nodes <= striping_factor) {
+                /* User has set hint cb_nodes and cb_nodes <= striping_factor.
+                 * Ignore user's hint and try to set cb_nodes to be at least
+                 * striping_factor.
+                 */
+                num_aggr = striping_factor;
+            }
             else {
                 /* User has set hint cb_nodes and cb_nodes > striping_factor */
                 if (nprocs < fd->hints->cb_nodes)
@@ -582,6 +586,14 @@ if (fd->hints->cb_nodes == 0 || fd->access_mode & ADIO_RDONLY) {
     /* bcast cb_nodes and lustre.num_osts to all processes */
     MPI_Bcast(msg, 3, MPI_INT, root, fd->comm);
     num_aggr = msg[0];
+
+#ifdef WKL_DEBUG
+    if (rank == root && fd->hints->cb_nodes > 0 && fd->hints->cb_nodes != num_aggr) {
+        /* user has set hint cb_nodes and the value is not num_aggr */
+        printf("Warning: %s line %d: Set cb_nodes to %d and ignore user's hint of %d\n",
+               __func__, __LINE__, num_aggr, fd->hints->cb_nodes);
+    }
+#endif
 
     /* set file striping hints */
     fd->hints->cb_nodes = num_aggr;
