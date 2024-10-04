@@ -43,6 +43,9 @@ static int num_uniq_osts(const char *path)
 
     lum_file = alloc_lum();
 
+    /* Note: this subroutine does not return the list of OST IDs exactly the
+     * same as command "lfs getstripe" on Perlmutter !!!
+     */
     rc = llapi_file_get_stripe(path, lum_file);
     assert(rc == 0);
 
@@ -219,7 +222,12 @@ if (rank == 0) {
             fd->hints->striping_unit = lum->lmm_stripe_size;
             fd->hints->striping_factor = lum->lmm_stripe_count;
             fd->hints->start_iodevice = lum->lmm_stripe_offset;
+            /* TODO: figure out the correct way to find the number of unique
+             * OSTs. This is relevant only when Lustre over-striping is used.
+             * For now, set it to same as fd->hints->striping_factor.
             fd->hints->fs_hints.lustre.num_osts = num_uniq_osts(fd->filename);
+             */
+            fd->hints->fs_hints.lustre.num_osts = fd->hints->striping_factor;
         }
     }
 #endif
