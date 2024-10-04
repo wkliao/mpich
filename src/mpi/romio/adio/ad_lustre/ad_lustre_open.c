@@ -43,6 +43,9 @@ static int num_uniq_osts(const char *path)
 
     lum_file = alloc_lum();
 
+    /* Note: this subroutine does not return the list of OST IDs exactly the
+     * same as command "lfs getstripe" on Perlmutter !!!
+     */
     rc = llapi_file_get_stripe(path, lum_file);
     assert(rc == 0);
 
