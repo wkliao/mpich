@@ -313,9 +313,8 @@ void ADIOI_LUSTRE_Calc_others_req(ADIO_File fd,
                                   const ADIOI_Access *my_req,
                                   ADIOI_Access **others_req_ptr)
 {
-    int i, j, myrank, nprocs;
+    int i, myrank, nprocs;
     MPI_Count *count_my_req_per_proc, *count_others_req_per_proc;
-    MPI_Request *requests;
     ADIOI_Access *others_req;
     size_t memLen;
     ADIO_Offset *ptr;
@@ -386,12 +385,71 @@ MPI_Barrier(fd->comm);
 timing = MPI_Wtime();
 #endif
 
-/* now send the calculated offsets and lengths to respective processes */
+    /* now send the calculated offsets and lengths to respective processes */
 
-    requests = (MPI_Request *)
+#define USE_ALLTOALLV_
+#ifdef USE_ALLTOALLV_
+    MPI_Offset *r_buf=NULL, *s_buf=NULL;
+
+#if MPI_VERSION >= 4
+    MPI_Count *sendCounts, *recvCounts;
+    MPI_Aint *sdispls, *rdispls;
+    sendCounts = (MPI_Count*) ADIOI_Calloc(nprocs * 2, sizeof(MPI_Count));
+    sdispls = (MPI_Aint*) ADIOI_Calloc(nprocs * 2, sizeof(MPI_Aint));
+#else
+    int *sendCounts, *recvCounts, *sdispls, *rdispls;
+    sendCounts = (int*) ADIOI_Calloc(nprocs * 2, sizeof(int));
+    sdispls = (int*) ADIOI_Calloc(nprocs * 2, sizeof(int));
+#endif
+    recvCounts = sendCounts + nprocs;
+    rdispls = sdispls + nprocs;
+
+    /* prepare receive side */
+    for (i=0; i<nprocs; i++) {
+        if (others_req[i].count == 0) continue;
+        if (i == myrank) {
+            /* send to self uses memcpy(), here
+             * others_req[i].count == my_req[fd->my_cb_nodes_index].count
+             */
+            memcpy(others_req[i].offsets, my_req[fd->my_cb_nodes_index].offsets,
+                   2 * my_req[fd->my_cb_nodes_index].count * sizeof(ADIO_Offset));
+        }
+        else {
+            recvCounts[i] = 2 * others_req[i].count;
+            if (r_buf == NULL) r_buf = others_req[i].offsets;
+            /* Note all others_req[*].offsets are allocated in a single malloc(). */
+            rdispls[i] = others_req[i].offsets - r_buf;
+        }
+    }
+
+    /* prepare send side */
+    for (i = 0; i < fd->hints->cb_nodes; i++) {
+        if (my_req[i].count && i != fd->my_cb_nodes_index) {
+            int dest = fd->hints->ranklist[i];
+            sendCounts[dest] = 2 * my_req[i].count;
+            if (s_buf == NULL) s_buf = my_req[i].offsets;
+            /* Note all my_req[*].offsets are allocated in a single malloc(). */
+            sdispls[dest] = my_req[i].offsets - s_buf;
+        }
+    }
+
+#if MPI_VERSION >= 4
+    MPI_Alltoallv_c(s_buf, sendCounts, sdispls, MPI_OFFSET,
+                    r_buf, recvCounts, rdispls, MPI_OFFSET, fd->comm);
+#else
+    MPI_Alltoallv(s_buf, sendCounts, sdispls, MPI_OFFSET,
+                  r_buf, recvCounts, rdispls, MPI_OFFSET, fd->comm);
+#endif
+
+    ADIOI_Free(sendCounts);
+    ADIOI_Free(sdispls);
+
+#else /* #ifdef USE_ALLTOALLV_ */
+    int nreqs;
+    MPI_Request *requests = (MPI_Request *)
         ADIOI_Malloc((nprocs + fd->hints->cb_nodes) * sizeof(MPI_Request));
 
-    j = 0;
+    nreqs = 0;
     for (i = 0; i < nprocs; i++) {
         if (others_req[i].count == 0)
             continue;
@@ -407,37 +465,40 @@ else recv_amnt += 2 * others_req[i].count;
                    2 * my_req[fd->my_cb_nodes_index].count * sizeof(ADIO_Offset));
         else
             MPI_Irecv(others_req[i].offsets, 2 * others_req[i].count,
-                      ADIO_OFFSET, i, 0, fd->comm, &requests[j++]);
+                      ADIO_OFFSET, i, 0, fd->comm, &requests[nreqs++]);
     }
 
 #ifdef WKL_DEBUG
-/* WRF hangs below when calling MPI_Waitall(), at running 16 nodes, 128 ranks per node
- * on Perlmutter, when these 3 env variables are set:
+/* WRF hangs below when calling MPI_Waitall(), at running 16 nodes, 128 ranks
+ * per node on Perlmutter, when these 3 env variables are set:
  *    FI_UNIVERSE_SIZE        = 2048
  *    FI_CXI_DEFAULT_CQ_SIZE  = 524288
  *    FI_CXI_RX_MATCH_MODE    = software
+ *
+ * Using MPI_Alltoallv seems to be able to avoid such hanging problem. (above)
  */
-MPI_Barrier(fd->comm); /* This barrier prevents the MPI_Waitall below from hanging !!! */
+// MPI_Barrier(fd->comm); /* This barrier prevents the MPI_Waitall below from hanging !!! */
 #endif
 
     for (i = 0; i < fd->hints->cb_nodes; i++) {
         if (my_req[i].count && i != fd->my_cb_nodes_index)
-            MPI_Isend(my_req[i].offsets, 2 * my_req[i].count,
+            MPI_Issend(my_req[i].offsets, 2 * my_req[i].count,
                       ADIO_OFFSET, fd->hints->ranklist[i], 0, fd->comm,
-                      &requests[j++]);
+                      &requests[nreqs++]);
     }
 
-    if (j) {
+    if (nreqs) {
 #ifdef MPI_STATUSES_IGNORE
-        MPI_Waitall(j, requests, MPI_STATUSES_IGNORE);
+        MPI_Waitall(nreqs, requests, MPI_STATUSES_IGNORE);
 #else
-        MPI_Status *statuses = (MPI_Status *) ADIOI_Malloc(j * sizeof(MPI_Status));
-        MPI_Waitall(j, requests, statuses);
+        MPI_Status *statuses = (MPI_Status *)
+                               ADIOI_Malloc(nreqs * sizeof(MPI_Status));
+        MPI_Waitall(nreqs, requests, statuses);
         ADIOI_Free(statuses);
 #endif
     }
-
     ADIOI_Free(requests);
+#endif
 
 #ifdef AGGREGATION_PROFILE
     MPE_Log_event(5027, 0, NULL);
@@ -860,12 +921,96 @@ void commit_comm_phase(ADIO_File      fd,
      * element of recv_list[] and uses it when calling MPI_Irecv or MPI_Recv
      * to receive write data from all processes.
      */
-    int i, nreqs, nprocs;
+    int i, nprocs;
+
+    MPI_Comm_size(fd->comm, &nprocs);
+
+#ifdef USE_ALLTOALLW_
+    MPI_Datatype *sendTypes, *recvTypes;
+    sendTypes = (MPI_Datatype*)ADIOI_Malloc(sizeof(MPI_Datatype) * nprocs * 2);
+    recvTypes = sendTypes + nprocs;
+
+    for (i=0; i<nprocs; i++)
+        sendTypes[i] = recvTypes[i] = MPI_BYTE;
+
+#if MPI_VERSION >= 4
+    MPI_Count *sendCounts, *recvCounts;
+    MPI_Aint *sdispls, *rdispls;
+    sendCounts = (MPI_Count*) ADIOI_Calloc(nprocs * 2, sizeof(MPI_Count));
+    sdispls = (MPI_Aint*) ADIOI_Calloc(nprocs * 2, sizeof(MPI_Aint));
+#else
+    int *sendCounts, *recvCounts, *sdispls, *rdispls;
+    sendCounts = (int*) ADIOI_Calloc(nprocs * 2, sizeof(int));
+    sdispls = (int*) ADIOI_Calloc(nprocs * 2, sizeof(int));
+#endif
+    recvCounts = sendCounts + nprocs;
+    rdispls = sdispls + nprocs;
+
+    /* prepare receive side */
+    if (fd->is_agg) {
+        for (i=0; i<nprocs; i++) {
+            if (recv_list[i].count == 0) continue;
+
+            recvCounts[i] = 1;
+
+            /* combine reqs using new datatype */
+#if MPI_VERSION >= 4
+            MPI_Type_create_hindexed_c(recv_list[i].count, recv_list[i].len,
+                                       recv_list[i].disp, MPI_BYTE,
+                                       &recvTypes[i]);
+#else
+            CAST_INT32(recv_list[i].count, recv_list[i].len,
+                                       recv_list[i].disp, MPI_BYTE,
+                                       &recvTypes[i]);
+#endif
+            MPI_Type_commit(&recvTypes[i]);
+        }
+    }
+
+    /* prepare send side */
+    for (i=0; i<fd->hints->cb_nodes; i++) {
+        if (send_list[i].count == 0) continue;
+
+        int dest = fd->hints->ranklist[i];
+        sendCounts[dest] = 1;
+
+        /* combine reqs using new datatype */
+#if MPI_VERSION >= 4
+        MPI_Type_create_hindexed_c(send_list[i].count, send_list[i].len,
+                                   send_list[i].disp, MPI_BYTE,
+                                   &sendTypes[dest]);
+#else
+        CAST_INT32(send_list[i].count, send_list[i].len,
+                                   send_list[i].disp, MPI_BYTE,
+                                   &sendTypes[dest]);
+#endif
+        MPI_Type_commit(&sendTypes[dest]);
+    }
+
+#if MPI_VERSION >= 4
+    MPI_Alltoallw_c(MPI_BOTTOM, sendCounts, sdispls, sendTypes,
+                    MPI_BOTTOM, recvCounts, rdispls, recvTypes, fd->comm);
+#else
+    MPI_Alltoallw(MPI_BOTTOM, sendCounts, sdispls, sendTypes,
+                  MPI_BOTTOM, recvCounts, rdispls, recvTypes, fd->comm);
+#endif
+
+    for (i=0; i<nprocs; i++) {
+        if (sendTypes[i] != MPI_BYTE)
+            MPI_Type_free(&sendTypes[i]);
+        if (recvTypes[i] != MPI_BYTE)
+            MPI_Type_free(&recvTypes[i]);
+    }
+    ADIOI_Free(sendCounts);
+    ADIOI_Free(sdispls);
+    ADIOI_Free(sendTypes);
+
+#else /* #ifdef USE_ALLTOALLW_ */
+    int nreqs;
     MPI_Request *reqs;
     MPI_Status status;
     MPI_Datatype sendType, recvType;
 
-    MPI_Comm_size(fd->comm, &nprocs);
     nreqs = fd->hints->cb_nodes;
     nreqs += (fd->is_agg) ? nprocs : 0;
     reqs = (MPI_Request *)ADIOI_Malloc(sizeof(MPI_Request) * nreqs);
@@ -892,7 +1037,7 @@ void commit_comm_phase(ADIO_File      fd,
                 else
                     MPI_Irecv(MPI_BOTTOM, 1, recvType, i, 0, fd->comm,
                               &reqs[nreqs++]);
-                MPI_Type_free (&recvType);
+                MPI_Type_free(&recvType);
             }
         }
     }
@@ -912,12 +1057,15 @@ void commit_comm_phase(ADIO_File      fd,
 
             MPI_Issend(MPI_BOTTOM, 1, sendType, fd->hints->ranklist[i], 0,
                        fd->comm, &reqs[nreqs++]);
-            MPI_Type_free (&sendType);
+            MPI_Type_free(&sendType);
         }
     }
 
     if (nreqs > 0)
         MPI_Waitall(nreqs, reqs, MPI_STATUSES_IGNORE);
+
+    ADIOI_Free(reqs);
+#endif
 
     /* clear send_list and recv_list for future reuse */
     for (i = 0; i < fd->hints->cb_nodes; i++)
@@ -926,8 +1074,6 @@ void commit_comm_phase(ADIO_File      fd,
     if (fd->is_agg)
         for (i = 0; i < nprocs; i++)
             recv_list[i].count = 0;
-
-    ADIOI_Free(reqs);
 }
 
 /* If successful, error_code is set to MPI_SUCCESS.  Otherwise an error code is
