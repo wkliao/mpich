@@ -120,10 +120,10 @@ usage(char *argv0)
 /*----< main() >------------------------------------------------------------*/
 int main(int argc, char **argv)
 {
-    char filename[512];
+    char filename[512], mpi_name[MPI_MAX_PROCESSOR_NAME];
     size_t i, buf_len;
     int ret, err, nerrs=0, rank, verbose, omode, nprocs, do_read, do_write;
-    int nvars, len, gap, psize[2], gsize[2], count[2], start[2];
+    int nvars, len, gap, psize[2], gsize[2], count[2], start[2], mpi_namelen;
     char *buf;
     double timing, max_timing;
     MPI_File     fh;
@@ -139,6 +139,9 @@ int main(int argc, char **argv)
     MPI_Init(&argc, &argv);
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
     MPI_Comm_size(MPI_COMM_WORLD, &nprocs);
+    MPI_Get_processor_name(mpi_name,&mpi_namelen);
+    printf("MPI rank %2d runs on host %s of total %d processes\n",
+           rank, mpi_name, nprocs);
 
 #if MPI_VERSION >= 4
 

@@ -208,16 +208,16 @@ set_hints(MPI_Info *info, char *hints) {
 
 int main(int argc, char *argv[])
 {
-    int nproc = 1, rank = 0;
-    char *target = NULL;
-    int c;
+    int nproc = 1, rank = 0, c, mpi_ret, corrupt_blocks = 0, mpi_namelen;
+    char *target = NULL, mpi_name[MPI_MAX_PROCESSOR_NAME];
     MPI_Info info;
-    int mpi_ret;
-    int corrupt_blocks = 0;
 
     MPI_Init(&argc, &argv);
     MPI_Comm_size(MPI_COMM_WORLD, &nproc);
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+    MPI_Get_processor_name(mpi_name,&mpi_namelen);
+    printf("MPI rank %2d runs on host %s of total %d processes\n",
+           rank, mpi_name, nproc);
 
     if ((mpi_ret = MPI_Info_create(&info)) != MPI_SUCCESS) {
         if (rank == 0)

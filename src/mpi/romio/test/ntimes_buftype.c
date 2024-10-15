@@ -42,12 +42,12 @@ int main(int argc, char **argv)
 {
     extern int optind;
     extern char *optarg;
-    char filename[256];
+    char filename[256], mpi_name[MPI_MAX_PROCESSOR_NAME];
     size_t i, j, k;
     int err, nerrs=0, rank, nprocs, mode, verbose=1, ntimes, len;
     int psizes[2], gsizes[2], subsizes[2], starts[2], lsizes[2];
-    int local_rank[2], *buf=NULL, type_size, gap, max_nerrs;
-    double timing, max_timing;     
+    int local_rank[2], *buf=NULL, type_size, gap, max_nerrs, mpi_namelen;
+    double timing, max_timing;
     MPI_Aint lb, displace[2], extent;
     MPI_Datatype bufType, fileType;
     MPI_File fh;
@@ -57,6 +57,9 @@ int main(int argc, char **argv)
     MPI_Init(&argc,&argv);
     MPI_Comm_size(MPI_COMM_WORLD, &nprocs);
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+    MPI_Get_processor_name(mpi_name,&mpi_namelen);
+    printf("MPI rank %2d runs on host %s of total %d processes\n",
+           rank, mpi_name, nprocs);
 
     ntimes = 2;
     len = 100;  /* default dimension size */
@@ -98,11 +101,11 @@ int main(int argc, char **argv)
     MPI_Dims_create(nprocs, 2, psizes);
     if (verbose && rank == 0)
         printf("process dimension psizes = %d %d\n", psizes[0], psizes[1]);
-    
+
     /* find its local rank IDs along each dimension */
     local_rank[0] = rank / psizes[1];
     local_rank[1] = rank % psizes[1];
-    if (verbose) 
+    if (verbose)
         printf("rank %2d: local rank =      %d %d\n",
                rank,local_rank[0],local_rank[1]);
 

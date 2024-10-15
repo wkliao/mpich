@@ -132,12 +132,16 @@ static int delete_file(const char *out_fname)
 
 int main(int argc, char **argv)
 {
-    int i, err = 0, verbose = 0, rank, len;
-    char *filename, out_fname[512];
+    int i, err = 0, verbose = 0, rank, len, nprocs, mpi_namelen;
+    char *filename, out_fname[512], mpi_name[MPI_MAX_PROCESSOR_NAME];
     MPI_File fh;
 
     MPI_Init(&argc, &argv);
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+    MPI_Comm_size(MPI_COMM_WORLD, &nprocs);
+    MPI_Get_processor_name(mpi_name,&mpi_namelen);
+    printf("MPI rank %2d runs on host %s of total %d processes\n",
+           rank, mpi_name, nprocs);
 
 /* process 0 takes the file name as a command-line argument and
    broadcasts it to other processes */

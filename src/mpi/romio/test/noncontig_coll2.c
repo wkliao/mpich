@@ -252,15 +252,18 @@ void simple_shuffle_str(int mynod, int len, ADIO_cb_name_array array, char *dest
 int main(int argc, char **argv)
 {
     int i, mynod, nprocs, len, errs = 0, sum_errs = 0, verbose = 0;
-    char *filename;
+    char *filename, mpi_name[MPI_MAX_PROCESSOR_NAME];
     char *cb_config_string;
-    int cb_config_len;
+    int cb_config_len, mpi_namelen;
     ADIO_cb_name_array array = NULL;
 
 
     MPI_Init(&argc, &argv);
     MPI_Comm_size(MPI_COMM_WORLD, &nprocs);
     MPI_Comm_rank(MPI_COMM_WORLD, &mynod);
+    MPI_Get_processor_name(mpi_name,&mpi_namelen);
+    printf("MPI rank %2d runs on host %s of total %d processes\n",
+           mynod, mpi_name, nprocs);
 
 
     /* process 0 takes the file name as a command-line argument and

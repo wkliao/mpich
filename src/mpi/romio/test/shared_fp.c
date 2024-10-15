@@ -25,13 +25,17 @@ void handle_error(int errcode, const char *str)
 int main(int argc, char **argv)
 {
     int *buf, i, rank, nprocs, len, sum, global_sum;
-    int errs = 0, toterrs, errcode;
-    char *filename;
+    int errs = 0, toterrs, errcode, mpi_namelen;
+    char *filename, mpi_name[MPI_MAX_PROCESSOR_NAME];
     MPI_File fh;
     MPI_Status status;
 
     MPI_Init(&argc, &argv);
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+    MPI_Comm_size(MPI_COMM_WORLD, &nprocs);
+    MPI_Get_processor_name(mpi_name,&mpi_namelen);
+    printf("MPI rank %2d runs on host %s of total %d processes\n",
+           rank, mpi_name, nprocs);
 
 /* process 0 takes the file name as a command-line argument and
    broadcasts it to other processes */
@@ -58,9 +62,6 @@ int main(int argc, char **argv)
     }
 
     buf = (int *) malloc(COUNT * sizeof(int));
-
-    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
-    MPI_Comm_size(MPI_COMM_WORLD, &nprocs);
 
     for (i = 0; i < COUNT; i++)
         buf[i] = COUNT * rank + i;

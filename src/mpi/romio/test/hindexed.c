@@ -57,8 +57,8 @@ char compare_buf[XLEN * 4][YLEN * 4] = {
 /*----< main() >------------------------------------------------------------*/
 int main(int argc, char **argv)
 {
-    int i, j, err, rank, np, num_io, len;
-    char *buf, *filename;
+    int i, j, err, rank, np, num_io, len, mpi_namelen;
+    char *buf, *filename, mpi_name[MPI_MAX_PROCESSOR_NAME];
     int rank_dim[2], array_of_sizes[2];
     int array_of_subsizes[2];
     int count, *blocklengths, global_array_size;
@@ -76,6 +76,9 @@ int main(int argc, char **argv)
     MPI_Init(&argc, &argv);
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
     MPI_Comm_size(MPI_COMM_WORLD, &np);
+    MPI_Get_processor_name(mpi_name,&mpi_namelen);
+    printf("MPI rank %2d runs on host %s of total %d processes\n",
+           rank, mpi_name, np);
 
 /* process 0 takes the file name as a command-line argument and
    broadcasts it to other processes */

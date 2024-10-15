@@ -132,16 +132,20 @@ int main(int argc, char **argv)
 
     MPI_Datatype baseindex, indexed1G, indexed3G, indexed6G;
     MPI_Datatype subarray1G, subarray3G, subarray6G;
-    int ret, rank;
+    int ret, rank, nprocs, mpi_namelen;
+    char mpi_name[MPI_MAX_PROCESSOR_NAME];
 
     MPI_Init(&argc, &argv);
+    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+    MPI_Comm_size(MPI_COMM_WORLD, &nprocs);
+    MPI_Get_processor_name(mpi_name,&mpi_namelen);
+    printf("MPI rank %2d runs on host %s of total %d processes\n",
+           rank, mpi_name, nprocs);
 
     if (argc != 2) {
         fprintf(stderr, "usage: %s <filename>\n", argv[0]);
         MPI_Abort(MPI_COMM_WORLD, 1);
     }
-
-    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
 
     /* base type: 1MB indexed type of ints */
     count = 2;

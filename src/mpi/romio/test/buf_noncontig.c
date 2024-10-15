@@ -49,8 +49,9 @@ int main(int argc, char **argv)
 #else
     extern int optind;
     extern char *optarg;
-    char filename[256];
+    char filename[256], mpi_name[MPI_MAX_PROCESSOR_NAME];
     int i, err, nerrs=0, rank, mode, verbose=1, count, blocklen[2];
+    int nprocs, mpi_namelen;
     char *buf;
     double timing, max_timing;
     MPI_Aint lb, displace[2], extent;
@@ -62,6 +63,10 @@ int main(int argc, char **argv)
 
     MPI_Init(&argc,&argv);
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+    MPI_Comm_size(MPI_COMM_WORLD, &nprocs);
+    MPI_Get_processor_name(mpi_name,&mpi_namelen);
+    printf("MPI rank %2d runs on host %s of total %d processes\n",
+           rank, mpi_name, nprocs);
 
     count = 4; /* default block size */
     filename[0] = '\0';

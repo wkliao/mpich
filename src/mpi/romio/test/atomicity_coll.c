@@ -44,8 +44,8 @@ int main(int argc, char **argv)
 {
     extern int optind;
     extern char *optarg;
-    char filename[256];
-    int i, err, nerrs=0, rank, nprocs, mode, verbose=0, len;
+    char filename[256], mpi_name[MPI_MAX_PROCESSOR_NAME];
+    int i, err, nerrs=0, rank, nprocs, mode, verbose=0, len, mpi_namelen;
     int do_write, do_read, *buf;
     MPI_File fh;
     MPI_Offset offset;
@@ -54,6 +54,9 @@ int main(int argc, char **argv)
     MPI_Init(&argc,&argv);
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
     MPI_Comm_size(MPI_COMM_WORLD, &nprocs);
+    MPI_Get_processor_name(mpi_name,&mpi_namelen);
+    printf("MPI rank %2d runs on host %s of total %d processes\n",
+           rank, mpi_name, nprocs);
 
     len      = LEN;
     do_write = 1;

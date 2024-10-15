@@ -31,14 +31,18 @@ static void handle_error(int errcode, const char *str)
 
 int main(int argc, char **argv)
 {
-    int *buf, i, rank, nints, len;
-    char *filename, *tmp;
+    int *buf, i, rank, nints, len, nprocs, mpi_namelen;
+    char *filename, *tmp, mpi_name[MPI_MAX_PROCESSOR_NAME];
     int errs = 0, toterrs;
     MPI_File fh;
     MPI_Status status;
 
     PMPI_Init(&argc, &argv);
     PMPI_Comm_rank(MPI_COMM_WORLD, &rank);
+    MPI_Comm_size(MPI_COMM_WORLD, &nprocs);
+    MPI_Get_processor_name(mpi_name,&mpi_namelen);
+    printf("MPI rank %2d runs on host %s of total %d processes\n",
+           rank, mpi_name, nprocs);
 
 /* process 0 takes the file name as a command-line argument and
    broadcasts it to other processes */

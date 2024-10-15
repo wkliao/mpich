@@ -28,16 +28,19 @@ static void handle_error(int errcode, const char *str)
 
 int main(int argc, char **argv)
 {
-    int *buf, i, j, mynod, nprocs, ntimes = 5, len, err, flag;
+    int *buf, i, j, mynod, nprocs, ntimes = 5, len, err, flag, mpi_namelen;
     double stim, read_tim, write_tim, new_read_tim, new_write_tim;
     double min_read_tim = 10000000.0, min_write_tim = 10000000.0, read_bw, write_bw;
     MPI_File fh;
     MPI_Status status;
-    char *filename;
+    char *filename, mpi_name[MPI_MAX_PROCESSOR_NAME];
 
     MPI_Init(&argc, &argv);
     MPI_Comm_size(MPI_COMM_WORLD, &nprocs);
     MPI_Comm_rank(MPI_COMM_WORLD, &mynod);
+    MPI_Get_processor_name(mpi_name,&mpi_namelen);
+    printf("MPI rank %2d runs on host %s of total %d processes\n",
+           mynod, mpi_name, nprocs);
 
 /* process 0 takes the file name as a command-line argument and
    broadcasts it to other processes */

@@ -36,11 +36,11 @@ int main(int argc, char **argv)
 {
     MPI_Datatype newtype;
     int i, ndims, array_of_gsizes[3], array_of_distribs[3];
-    int order, nprocs, len, flag, err;
+    int order, nprocs, len, flag, err, mpi_namelen;
     int array_of_dargs[3], array_of_psizes[3];
     int *readbuf, *writebuf, mynod;
     MPI_Count bufcount;
-    char filename[1024];
+    char filename[1024], mpi_name[MPI_MAX_PROCESSOR_NAME];
     MPI_File fh;
     MPI_Status status;
     MPI_Aint size_with_aint;
@@ -49,6 +49,9 @@ int main(int argc, char **argv)
     MPI_Init(&argc, &argv);
     MPI_Comm_rank(MPI_COMM_WORLD, &mynod);
     MPI_Comm_size(MPI_COMM_WORLD, &nprocs);
+    MPI_Get_processor_name(mpi_name,&mpi_namelen);
+    printf("MPI rank %2d runs on host %s of total %d processes\n",
+           mynod, mpi_name, nprocs);
 
 /* process 0 takes the file name as a command-line argument and
    broadcasts it to other processes */
