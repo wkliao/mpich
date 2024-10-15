@@ -187,7 +187,8 @@ int main(int argc, char **argv)
     extern int optind;
     extern char *optarg;
     char filename[256], *cb_nodes=NULL, *cb_buffer_size=NULL;
-    int i, j, k, z, cube, do_read;
+    char mpi_name[MPI_MAX_PROCESSOR_NAME];
+    int i, j, k, z, cube, do_read, mpi_namelen;
     int err, nerrs=0, rank, nprocs, mode, nvars, len, xlen;
     int **buf=NULL, ngcells, max_nerrs, buf_contig;
     double timing[2], max_timing[2];
@@ -197,8 +198,11 @@ int main(int argc, char **argv)
     MPI_Info info = MPI_INFO_NULL;
 
     MPI_Init(&argc,&argv);
-    MPI_Comm_size(MPI_COMM_WORLD, &nprocs);
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+    MPI_Comm_size(MPI_COMM_WORLD, &nprocs);
+    MPI_Get_processor_name(mpi_name,&mpi_namelen);
+    printf("MPI rank %2d runs on host %s of total %d processes\n",
+           rank, mpi_name, nprocs);
 
     verbose     = 0;
     do_read     = 0;

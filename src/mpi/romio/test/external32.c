@@ -67,8 +67,9 @@ int main(int argc, char *argv[])
     int sample_i = 123456789, i;
     char sample_i_le[4] = { 0x15, 0xcd, 0x5b, 0x07 };
     const char *datarep[3] = { "native", "external32", "internal" };
+    char mpi_name[MPI_MAX_PROCESSOR_NAME];
     MPI_File fileh;
-    int rank;
+    int rank, nprocs, mpi_namelen;
     FILE *fileh_std;
 
     if (sizeof(int) != 4) {
@@ -78,6 +79,10 @@ int main(int argc, char *argv[])
 
     MPI_Init(&argc, &argv);
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+    MPI_Comm_size(MPI_COMM_WORLD, &nprocs);
+    MPI_Get_processor_name(mpi_name,&mpi_namelen);
+    printf("MPI rank %2d runs on host %s of total %d processes\n",
+           rank, mpi_name, nprocs);
 
     /* For each datarep */
     for (i = 0; i < 3; i++) {

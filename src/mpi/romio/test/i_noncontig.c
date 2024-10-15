@@ -30,18 +30,21 @@ static void handle_error(int errcode, const char *str)
 
 int main(int argc, char **argv)
 {
-    int *buf, i, mynod, nprocs, len;
+    int *buf, i, mynod, nprocs, len, mpi_namelen;
     int err, errs = 0, toterrs;
     MPI_Aint disp, extent;
     MPI_File fh;
     MPI_Status status;
-    char *filename;
+    char *filename, mpi_name[MPI_MAX_PROCESSOR_NAME];
     MPI_Datatype typevec, newtype, tmptype;
     MPIO_Request req;
 
     MPI_Init(&argc, &argv);
     MPI_Comm_size(MPI_COMM_WORLD, &nprocs);
     MPI_Comm_rank(MPI_COMM_WORLD, &mynod);
+    MPI_Get_processor_name(mpi_name,&mpi_namelen);
+    printf("MPI rank %2d runs on host %s of total %d processes\n",
+           mynod, mpi_name, nprocs);
 
     if (nprocs != 2) {
         fprintf(stderr, "Run this program on two processes\n");

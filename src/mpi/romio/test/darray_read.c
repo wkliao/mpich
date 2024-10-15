@@ -28,7 +28,7 @@ int main(int argc, char *argv[])
 {
     int i, j, nerrors = 0, total_errors = 0;
     int rank, size, bpos, len;
-    char *filename;
+    char *filename, mpi_name[MPI_MAX_PROCESSOR_NAME];
 
     MPI_Datatype darray;
     MPI_Status status;
@@ -44,7 +44,7 @@ int main(int argc, char *argv[])
     double data[NSIDE * NSIDE];
     double *ldata, *pdata;
 
-    int tsize, nelem;
+    int tsize, nelem, mpi_namelen;
 
     MPI_File dfile;
 
@@ -52,6 +52,9 @@ int main(int argc, char *argv[])
 
     MPI_Comm_size(MPI_COMM_WORLD, &size);
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+    MPI_Get_processor_name(mpi_name,&mpi_namelen);
+    printf("MPI rank %2d runs on host %s of total %d processes\n",
+           rank, mpi_name, size);
 
 /* process 0 takes the file name as a command-line argument and
    broadcasts it to other processes */

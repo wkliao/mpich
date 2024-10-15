@@ -137,12 +137,15 @@ static int test_indexed_with_zeros(char *filename, int testcase)
 
 int main(int argc, char **argv)
 {
-    char *filename;
-    int i, len, nr_errors, rank, np;
+    char *filename, mpi_name[MPI_MAX_PROCESSOR_NAME];
+    int i, len, nr_errors, rank, np, mpi_namelen;
 
     MPI_Init(&argc, &argv);
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
     MPI_Comm_size(MPI_COMM_WORLD, &np);
+    MPI_Get_processor_name(mpi_name,&mpi_namelen);
+    printf("MPI rank %2d runs on host %s of total %d processes\n",
+           rank, mpi_name, np);
 
 /* process 0 takes the file name as a command-line argument and
    broadcasts it to other processes */

@@ -72,15 +72,19 @@ void parse_args(int argc, char **argv, int rank, options * opts)
 
 int main(int argc, char **argv)
 {
-    int nprocs, mynod, errcode;
+    int nprocs, mynod, errcode, mpi_namelen;
     options my_options = { NULL, 0, 0 };
     MPI_File fh;
     MPI_Status status;
     MPI_Info info;
+    char mpi_name[MPI_MAX_PROCESSOR_NAME];
 
     MPI_Init(&argc, &argv);
     MPI_Comm_size(MPI_COMM_WORLD, &nprocs);
     MPI_Comm_rank(MPI_COMM_WORLD, &mynod);
+    MPI_Get_processor_name(mpi_name,&mpi_namelen);
+    printf("MPI rank %2d runs on host %s of total %d processes\n",
+           mynod, mpi_name, nprocs);
 
     parse_args(argc, argv, mynod, &my_options);
 
