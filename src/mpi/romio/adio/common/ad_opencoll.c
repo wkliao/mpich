@@ -274,7 +274,20 @@ static int construct_aggr_list(ADIO_File fd, int root, int *error_code)
      * Note my_procname is null character terminated, but my_procname_len
      * does not include the null character.
      */
+#ifdef MIMIC_LUSTRE
+    /* mimic number of compute nodes = 4 */
+    int node_id, np_per_node = nprocs / 4;
+    if (nprocs % 4 > 0) np_per_node++;
+    if (rank < np_per_node * (nprocs % 4))
+        node_id = rank / np_per_node;
+    else
+        node_id = (rank - np_per_node * (nprocs % 4)) / (nprocs / 4) + (nprocs % 4);
+
+    sprintf(my_procname,"compute.node.%d", node_id);
+    my_procname_len = strlen(my_procname);
+#else
     MPI_Get_processor_name(my_procname, &my_procname_len);
+#endif
     my_procname_len++; /* to include terminate null character */
 
     if (rank == root) {
