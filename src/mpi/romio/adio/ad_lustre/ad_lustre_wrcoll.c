@@ -539,6 +539,9 @@ void ADIOI_LUSTRE_WriteStridedColl(ADIO_File fd, const void *buf, MPI_Aint count
 
     orig_fp = fd->fp_ind;
 
+fd->lustre_write_metrics[1] = fd->lustre_write_metrics[2] = 0;
+fd->lustre_write_metrics[0] = MPI_Wtime();
+
     /* Using user buffer datatype, count, and fileview to construct a list of
      * starting file offsets and write lengths of this rank and store them in
      * flat_fview.off[] and flat_fview.len[], respectively. Note a rank's
@@ -886,6 +889,11 @@ if (do_collect == 0) printf("%s --- SWITCH to independent write !!!\n",__func__)
 #endif
 
     fd->fp_sys_posn = -1;       /* set it to null. */
+
+fd->lustre_write_metrics[0] = MPI_Wtime() - fd->lustre_write_metrics[0];
+double max_t[3]; MPI_Reduce(fd->lustre_write_metrics, max_t, 3, MPI_DOUBLE, MPI_MAX, 0, fd->comm);
+if (myrank == 0) printf("%s line %d: MAX lustre time write=%.4f pwrite=%.4f all-to-many senders=%ld (nprocs=%d)\n", __func__, __LINE__, max_t[0], max_t[1], (long)max_t[2], nprocs);
+
 }
 
 #define CAST_INT32(count, bklen, disp, dType, newType) {                     \
@@ -1021,6 +1029,7 @@ void commit_comm_phase(ADIO_File      fd,
     nreqs = 0;
 
     /* receiving part */
+int nrecvs = 0;
     if (fd->is_agg) {
         for (i = 0; i < nprocs; i++) {
             if (recv_list[i].count > 0) {
@@ -1042,6 +1051,7 @@ void commit_comm_phase(ADIO_File      fd,
                     MPI_Irecv(MPI_BOTTOM, 1, recvType, i, 0, fd->comm,
                               &reqs[nreqs++]);
                 MPI_Type_free(&recvType);
+nrecvs++;
             }
         }
     }
@@ -1064,6 +1074,7 @@ void commit_comm_phase(ADIO_File      fd,
             MPI_Type_free(&sendType);
         }
     }
+fd->lustre_write_metrics[2] = (fd->lustre_write_metrics[2] > nrecvs) ? fd->lustre_write_metrics[2] : nrecvs;
 
     if (nreqs > 0)
         MPI_Waitall(nreqs, reqs, MPI_STATUSES_IGNORE);

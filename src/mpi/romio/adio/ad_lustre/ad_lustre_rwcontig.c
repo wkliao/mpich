@@ -196,7 +196,9 @@ else
                 MPE_Log_event(ADIOI_MPE_write_a, 0, NULL);
 #endif
                 rw_count = len - bytes_xfered;
+double tt = MPI_Wtime();
                 err = pwrite(fd->fd_sys, p, rw_count, offset + bytes_xfered);
+fd->lustre_write_metrics[1] += MPI_Wtime() - tt;
                 if (err == -1)
                     goto ioerr;
 #ifdef ADIOI_MPE_LOGGING

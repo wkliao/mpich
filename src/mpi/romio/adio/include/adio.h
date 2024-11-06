@@ -256,6 +256,8 @@ typedef struct ADIOI_FileD {
     int romio_onesided_always_rmw;
     int romio_onesided_inform_rmw;
     int romio_tunegather;
+double lustre_write_metrics[3];
+
 } ADIOI_FileD;
 
 typedef struct ADIOI_FileD *ADIO_File;
