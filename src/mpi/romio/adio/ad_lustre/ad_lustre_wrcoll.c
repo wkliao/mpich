@@ -525,7 +525,7 @@ void ADIOI_LUSTRE_WriteStridedColl(ADIO_File fd, const void *buf, MPI_Aint count
      * http://www.mcs.anl.gov/home/thakur/ext2ph.ps
      */
 
-    int i, nprocs, nonzero_nprocs, myrank, old_error, tmp_error;
+    int i, j, nprocs, nonzero_nprocs, myrank, old_error, tmp_error;
     int do_collect = 0;
     ADIO_Offset orig_fp, start_offset, end_offset;
     ADIO_Offset min_st_loc = -1, max_end_loc = -1;
@@ -678,6 +678,7 @@ fd->lustre_write_metrics[0] = MPI_Wtime();
             if (st_end_all[i+1] - st_end_all[i] < striping_range)
                 large_indv_req = 0;
             nonzero_nprocs = 1;
+            j = i; /* j is the rank of making first non-zero request */
             i += 2;
             break;
         }
@@ -686,7 +687,7 @@ fd->lustre_write_metrics[0] = MPI_Wtime();
                 /* process rank (i/2) has no data to write */
                 continue;
             }
-            if (st_end_all[i] < st_end_all[i - 1]) {
+            if (st_end_all[i] < st_end_all[j + 1]) {
                 /* start offset of process rank (i/2) is less than the end
                  * offset of process rank (i/2-1)
                  */
@@ -697,6 +698,7 @@ fd->lustre_write_metrics[0] = MPI_Wtime();
             nonzero_nprocs++;
             if (st_end_all[i+1] - st_end_all[i] < striping_range)
                 large_indv_req = 0;
+            j = i;
         }
         ADIOI_Free(st_end_all);
 
@@ -736,18 +738,20 @@ if (do_collect == 0) printf("%s --- SWITCH to independent write !!!\n",__func__)
             /* both buffer and fileview are contiguous */
             ADIO_Offset off = 0;
             if (file_ptr_type == ADIO_EXPLICIT_OFFSET)
-                off = fd->disp + flat_fview.off[0];
-                /* (offset * fd->etype_size) has been counted into
-                 * flat_fview.off[] in ADIOI_Calc_my_off_len()
+                off = flat_fview.off[0];
+                /* In ADIOI_Calc_my_off_len(), (offset * fd->etype_size) has
+                 * been counted into flat_fview.off[]. Similarly, fd->disp has
+                 * been counted into flat_fview.off[].
                  */
+
+            if (flat_fview.off != NULL) ADIOI_Free(flat_fview.off);
 
             ADIO_WriteContig(fd, buf, count, buftype, file_ptr_type, off, status, error_code);
         } else {
+            if (flat_fview.off != NULL) ADIOI_Free(flat_fview.off);
+
             ADIO_WriteStrided(fd, buf, count, buftype, file_ptr_type, offset, status, error_code);
         }
-
-        if (flat_fview.off != NULL)
-            ADIOI_Free(flat_fview.off);
 
         return;
     }
